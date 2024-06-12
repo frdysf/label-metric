@@ -5,12 +5,14 @@ from anytree.importer import DictImporter
 from anytree.exporter import DictExporter
 
 
-def print_tree(root: Node) -> None:
+def tree_to_string(root: Node) -> str:
     """
-    Print the tree structure.
+    Return the tree structure as a string.
     """
+    lines = []
     for pre, _, node in RenderTree(root):
-        print(pre + node.name)
+        lines.append(pre + node.name)
+    return "\n".join(lines)
 
 
 def node_distance(node1: Node, node2: Node, type: str = 'sum') -> int:
@@ -90,7 +92,7 @@ if __name__ == '__main__':
     h = Node("h", parent=c)
     i = Node("i", parent=c)
 
-    print_tree(root)
+    print(tree_to_string(root))
     
     print('sum dist between e11 and i:', node_distance(e11, i, type='sum'))
     print('max dist between e11 and i:', node_distance(e11, i, type='max'))
