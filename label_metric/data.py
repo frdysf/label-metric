@@ -3,11 +3,9 @@ from typing import Dict, List, Tuple
 
 from torch.utils.data import Dataset
 from anytree import Node, find_by_attr, LevelOrderIter
-from anytree.importer import DictImporter
-from anytree.exporter import DictExporter
 
 from label_metric.paths import OrchideaSOL_DIR
-from label_metric.utils.tree_utils import print_tree
+from label_metric.utils.tree_utils import print_tree, copy_tree
 
 
 class OrchideaSOL(Dataset):
@@ -66,17 +64,14 @@ class OrchideaSOL(Dataset):
         return node_to_index
         
     def print_num_per_node(self):
-        # copy the original tree, add data num to node name, and print
-        importer = DictImporter()
-        exporter = DictExporter()
-        tree_dict = exporter.export(self.tree)
-        ctree = importer.import_(tree_dict)
+        # copy the original tree, add data num to node name, print
+        new_tree = copy_tree(self.tree)
         nodes = list(LevelOrderIter(self.tree))
-        cnodes = list(LevelOrderIter(ctree))
-        for cnode in cnodes:
-            node = nodes[cnodes.index(cnode)]
-            cnode.name = f'{cnode.name} ({len(self.node_to_index[node])})'
-        print_tree(ctree)
+        new_nodes = list(LevelOrderIter(new_tree))
+        for new_node in new_nodes:
+            node = nodes[new_nodes.index(new_node)]
+            new_node.name = f'{new_node.name} ({len(self.node_to_index[node])})'
+        print_tree(new_tree)
         
 
 if __name__ == '__main__':

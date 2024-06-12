@@ -1,6 +1,8 @@
 from anytree import Node, RenderTree, LevelOrderGroupIter
 from anytree.walker import Walker
 from typing import Optional, Tuple, List
+from anytree.importer import DictImporter
+from anytree.exporter import DictExporter
 
 
 def print_tree(root: Node) -> None:
@@ -60,6 +62,14 @@ def iter_parent_nodes(root: Node, maxlevel: Optional[int] = None) -> List[Tuple[
     return [nodes for nodes in LevelOrderGroupIter(root, filter_=lambda n: not n.is_leaf, 
                                                    maxlevel=maxlevel) if len(nodes)]
     
+
+def copy_tree(tree: Node) -> Node:
+    importer = DictImporter()
+    exporter = DictExporter()
+    tree_dict = exporter.export(tree)
+    new_tree = importer.import_(tree_dict)
+    return new_tree
+
 
 if __name__ == '__main__':
 
