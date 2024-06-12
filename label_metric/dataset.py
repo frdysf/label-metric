@@ -50,7 +50,7 @@ class OrchideaSOL(Dataset):
                         'inst_fam':     rel_dirs[0],
                         'inst':         inst,
                         'mute':         mute,
-                        'p_tech':        rel_dirs[2],
+                        'p_tech':       rel_dirs[2],
                         'pitch':        fn_sep[2],
                         'dynamics':     fn_sep[3],
                         'node':         node
