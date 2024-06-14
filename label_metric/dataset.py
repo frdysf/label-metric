@@ -98,5 +98,8 @@ class OrchideaSOL(Dataset):
 
 
 if __name__ == '__main__':
+
+    # test
+
     dataset = OrchideaSOL()
     print(dataset)

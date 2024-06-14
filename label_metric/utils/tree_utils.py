@@ -15,7 +15,9 @@ def tree_to_string(root: Node) -> str:
     return "\n".join(lines)
 
 
-def node_distance(node1: Node, node2: Node, type: str = 'sum') -> int:
+def node_distance(node1: Node, 
+                  node2: Node, 
+                  type: str = 'sum') -> int:
     """
     Calculate the distance between two nodes in a tree.
     
