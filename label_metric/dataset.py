@@ -1,17 +1,32 @@
 import os
 from typing import Dict, List, Tuple
+import logging
+import random
 
 from torch.utils.data import Dataset
 from anytree import Node, find_by_attr, LevelOrderIter
+from tqdm import tqdm
 
 from label_metric.paths import OrchideaSOL_DIR
 from label_metric.utils.tree_utils import tree_to_string, iter_parent_nodes
 
+logging.basicConfig(
+    level = logging.INFO,
+    format='%(asctime)s %(name)s %(message)s',
+    datefmt='%m-%d %H:%M:%S',
+)
+logger = logging.getLogger(__name__)
+
+MIN_NUM_PER_LEAF = 10
 
 class OrchideaSOL(Dataset):
     
-    def __init__(self, dataset_dir: str = OrchideaSOL_DIR):
+    def __init__(self, split: str, dataset_dir: str = OrchideaSOL_DIR):
+        
         self.dataset_dir = os.path.join(dataset_dir, 'OrchideaSOL2020')
+        assert split in ['train', 'valid', 'test']
+        self.split = split
+        
         self.data, self.tree = self.load_data()
         self.node_to_index = self.prepare_node_to_index_mapping()
         self.add_num_per_node()
@@ -24,38 +39,24 @@ class OrchideaSOL(Dataset):
 
     def __str__(self) -> str:
         return tree_to_string(self.tree)
+    
+    def load_tree(self) -> Tuple[Node, Dict]:
 
-    def load_data(self) -> Tuple[List[Dict], Node]:
-        dataset = []
-        for root, children, files in os.walk(self.dataset_dir):
-            rel_dirs = os.path.relpath(root, self.dataset_dir).split(os.sep)
-            parent = rel_dirs[-1]
+        leaf_node_to_dir = {}
+        for root, children, _ in os.walk(self.dataset_dir):
+            rel_bases = os.path.relpath(root, self.dataset_dir).split(os.sep)
+            parent = rel_bases[-1]
             if parent == '.':
                 parent = 'OrchideaSOL'
                 tree = Node(parent)
             for child in children:
-                node = Node(child, parent=find_by_attr(tree, parent))
-            for file in files:
-                if file.endswith('.wav'):
-                    fn_sep = file.split('-')
-                    # leaf name is not unique so search by parent node
-                    parent_node = find_by_attr(tree, rel_dirs[1])
-                    node = find_by_attr(parent_node, rel_dirs[2])
-                    try:
-                        inst, mute = rel_dirs[1].split('+')
-                    except ValueError:
-                        inst, mute = rel_dirs[1], 'open'
-                    data = {
-                        'path':         os.path.join(root, file),
-                        'inst_fam':     rel_dirs[0],
-                        'inst':         inst,
-                        'mute':         mute,
-                        'p_tech':       rel_dirs[2],
-                        'pitch':        fn_sep[2],
-                        'dynamics':     fn_sep[3],
-                        'node':         node
-                    }
-                    dataset.append(data)
+                cur_dir = os.path.join(root, child)
+                if not os.listdir(cur_dir)[0].endswith('.wav'): # if not leaf
+                    node = Node(child, parent=find_by_attr(tree, parent))
+                elif len(os.listdir(cur_dir)) > MIN_NUM_PER_LEAF: # if leaf and has enough data
+                    node = Node(child, parent=find_by_attr(tree, parent))
+                    leaf_node_to_dir[node] = cur_dir
+        
         # unfold 'inst+mute' to 'mute under inst'
         inst_fam_nodes = iter_parent_nodes(tree)[1]
         for inst_fam_node in inst_fam_nodes:
@@ -76,6 +77,44 @@ class OrchideaSOL(Dataset):
             for inst, mute_nodes in inst_name_to_mute_node.items():
                 inst_node = inst_name_to_inst_node[inst]
                 inst_node.children = mute_nodes
+        
+        return tree, leaf_node_to_dir
+
+    def load_data(self) -> Tuple[List[Dict], Node]:
+
+        dataset = []
+        tree, leaf_node_to_dir = self.load_tree()
+
+        for leaf in tree.leaves: # a leaf is a class
+            audio_dir = leaf_node_to_dir[leaf]
+            audio_files = os.listdir(audio_dir)
+            
+            # shuffle and split
+            random.shuffle(audio_files)
+            train_size = int(0.8 * len(audio_files))
+            valid_size = int(0.1 * len(audio_files))
+            if self.split == 'train':
+                audio_files = audio_files[:train_size]
+            elif self.split == 'valid':
+                audio_files = audio_files[train_size:train_size + valid_size]
+            elif self.split == 'test':
+                audio_files = audio_files[train_size + valid_size:]
+            
+            for f in audio_files:
+                assert f.endswith('.wav')
+                fn_sep = f.split('-')
+                data = {
+                    'path':         os.path.join(audio_dir, f),
+                    'inst_fam':     leaf.parent.parent.parent.name,
+                    'inst':         leaf.parent.parent.name,
+                    'mute':         leaf.parent.name,
+                    'p_tech':       leaf.name,
+                    'pitch':        fn_sep[2],
+                    'dynamics':     fn_sep[3],
+                    'node':         leaf
+                }
+                dataset.append(data)
+
         return dataset, tree
 
     def prepare_node_to_index_mapping(self) -> Dict:
@@ -95,11 +134,16 @@ class OrchideaSOL(Dataset):
     def add_num_per_node(self) -> None:
         for node in LevelOrderIter(self.tree):
             node.name = f'{node.name} {len(self.node_to_index[node])}'
+        logger.info(f'\n\n-> loading OrchideaSOL {self.split}\n\n{self.__str__()}\n')
+
+
+# TODO: AudioSet
 
 
 if __name__ == '__main__':
 
     # test
 
-    dataset = OrchideaSOL()
-    print(dataset)
+    import lightning as L
+    L.seed_everything(2024)
+    train_set = OrchideaSOL(split='train')
