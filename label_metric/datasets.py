@@ -54,7 +54,7 @@ class OrchideaSOL(Dataset):
             rel_bases = os.path.relpath(root, self.dataset_dir).split(os.sep)
             parent = rel_bases[-1]
             if parent == '.':
-                parent = 'OrchideaSOL'
+                parent = self.__class__.__name__
                 tree = Node(parent)
             for child in children:
                 cur_dir = os.path.join(root, child)
@@ -118,7 +118,8 @@ class OrchideaSOL(Dataset):
                     'p_tech':       leaf.name,
                     'pitch':        fn_sep[2],
                     'dynamics':     fn_sep[3],
-                    'node':         leaf
+                    'node':         leaf,
+                    'label':        tree.leaves.index(leaf),
                 }
                 dataset.append(data)
 
@@ -141,7 +142,7 @@ class OrchideaSOL(Dataset):
     def update_node_name_with_num(self) -> None:
         for node in LevelOrderIter(self.tree):
             node.name = f'{node.name} {len(self.node_to_index[node])}'
-        logger.info(f'\n\n-> loading OrchideaSOL {self.split}\n\n{self.__str__()}\n')
+        logger.info(f'\nLoaded {self.split} set data\n{self.__str__()}')
 
 
 # TODO: AudioSet
