@@ -76,3 +76,12 @@ if __name__ == '__main__':
     from label_metric.datasets import OrchideaSOL
     train_set = OrchideaSOL('train')
     sampler = TreeSampler(train_set, more_level = 0)
+    print(next(iter(sampler)))
+    from torch.utils.data import DataLoader
+    train_loader = DataLoader(train_set,
+                              batch_size = 2,
+                              sampler = sampler,
+                              num_workers = 0,
+                              drop_last = False)
+    x, y = next(iter(train_loader))['anc']
+    print(x.shape, y.shape)

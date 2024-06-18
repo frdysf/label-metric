@@ -15,7 +15,7 @@ def setup_logger(logger, log_fn=None):
     # Add console handler to the logger
     logger.addHandler(console_handler)
 
-    # If log_file_name is provided, add a file handler
+    # If log_fn is provided, add a file handler
     if log_fn:
         file_handler = logging.FileHandler(log_fn)
         file_handler.setLevel(logging.DEBUG)  # File handler logs all levels

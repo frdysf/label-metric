@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 import logging
 import random
 
+import torch
 from torch.utils.data import Dataset
 from anytree import Node, find_by_attr, LevelOrderIter
 from tqdm import tqdm
@@ -33,16 +34,26 @@ class OrchideaSOL(Dataset):
     def __len__(self) -> int:
         return len(self.data)
     
-    def __getitem__(self, idx) -> Dict:
-        # load audio on the fly
-        data = self.data[idx]
-        y, sr = torchaudio.load(data['path'])
-        assert sr == 44100
-        data['audio'] = standardize_duration(y, sr=sr, dur=1.0)
-        return data
+    def __getitem__(self, idxs: Tuple) -> Dict:
+        a_idx, p_idx, n_idx = idxs
+        return {
+            'anc': self.prepare_item(a_idx),
+            'pos': self.prepare_item(p_idx),
+            'neg': self.prepare_item(n_idx)
+        }
 
     def __str__(self) -> str:
         return tree_to_string(self.tree)
+
+    def prepare_item(self, idx: int):
+        audio_path = self.data[idx]['path']
+        label = self.data[idx]['label']
+        audio, sr = torchaudio.load(audio_path)
+        assert sr == 44100
+        audio = standardize_duration(audio, sr=sr, dur=1.0)
+        assert audio.shape[0] == 1 # one channel
+        audio = torch.squeeze(audio, 0)
+        return audio, torch.tensor(label)
     
     def load_tree(self) -> Tuple[Node, Dict]:
 
