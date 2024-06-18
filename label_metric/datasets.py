@@ -11,13 +11,10 @@ import torchaudio
 from label_metric.paths import OrchideaSOL_DIR
 from label_metric.utils.tree_utils import tree_to_string, iter_parent_nodes
 from label_metric.utils.audio_utils import standardize_duration
+from label_metric.utils.log_utils import setup_logger
 
-logging.basicConfig(
-    level = logging.INFO,
-    format='%(asctime)s %(name)s %(message)s',
-    datefmt='%m-%d %H:%M:%S',
-)
 logger = logging.getLogger(__name__)
+setup_logger(logger)
 
 MIN_NUM_PER_LEAF = 10
 
@@ -142,7 +139,7 @@ class OrchideaSOL(Dataset):
     def update_node_name_with_num(self) -> None:
         for node in LevelOrderIter(self.tree):
             node.name = f'{node.name} {len(self.node_to_index[node])}'
-        logger.info(f'\nLoaded {self.split} set data\n{self.__str__()}')
+        logger.info(f'Loaded {self.split} set data\n{self.__str__()}')
 
 
 # TODO: AudioSet

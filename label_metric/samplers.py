@@ -7,13 +7,10 @@ from anytree import Node, LevelOrderGroupIter
 from torch.utils.data import Dataset, Sampler
 
 from label_metric.utils.tree_utils import iter_parent_nodes, node_distance, tree_to_string
+from label_metric.utils.log_utils import setup_logger
 
-logging.basicConfig(
-    level = logging.INFO,
-    format='%(asctime)s %(name)s %(message)s',
-    datefmt='%m-%d %H:%M:%S',
-)
 logger = logging.getLogger(__name__)
+setup_logger(logger)
 
 class TreeSampler(Sampler):
 
@@ -21,7 +18,7 @@ class TreeSampler(Sampler):
         self.data = data
         self.more_level = more_level
         self.triplets = self.sample()
-        logger.info(f'\n{len(self.triplets)} triplets '
+        logger.info(f'{len(self.triplets)} triplets '
                     'are sampled for each training epoch')
 
     def __len__(self) -> int:
@@ -35,8 +32,8 @@ class TreeSampler(Sampler):
         triplets = []
         for nodes in iter_parent_nodes(self.data.tree):
             for parent_node in nodes:
-                logger.info(f'visiting {parent_node}')
-                logger.info(f'the subtree\n{tree_to_string(parent_node)}')
+                logger.debug(f'visiting {parent_node}')
+                logger.debug(tree_to_string(parent_node))
                 triplets += self.sample_subtree(parent_node)
         return triplets
                 
@@ -52,18 +49,19 @@ class TreeSampler(Sampler):
         # more level starts from pos
         more_level = min(root.height - 1, self.more_level)
         for pos, neg in permutations(root.children, 2):
-            logger.info(f'choosing {pos.name} as pos and {neg.name} as neg')
+            logger.debug(f"pos: {pos.name.split(' ')[0]}, neg: {neg.name.split(' ')[0]}")
             shallow_leaf_nodes = [node for node in pos.leaves \
                                   if node_distance(pos, node) < more_level]
             more_level_nodes = list(list(LevelOrderGroupIter(pos))[more_level])
             nodes = shallow_leaf_nodes + more_level_nodes
-            logger.info(f'more level in pos includes {nodes}')
+            logger.debug(f"within pos: {[node.name.split(' ')[0] for node in nodes]}")
             if len(nodes) == 1: # nodes = [pos]
                 idx_a, idx_p = random.sample(self.data.node_to_index[nodes[0]], 2)
                 idx_n = random.choice(self.data.node_to_index[neg])
                 triplets.append((idx_a, idx_p, idx_n))
             else:
                 for node_a, node_p in combinations(nodes, 2):
+                    logger.debug(f"x_a: {node_a.name.split(' ')[0]}, x_p: {node_p.name.split(' ')[0]}")
                     idx_a = random.choice(self.data.node_to_index[node_a])
                     idx_p = random.choice(self.data.node_to_index[node_p])
                     idx_n = random.choice(self.data.node_to_index[neg])
