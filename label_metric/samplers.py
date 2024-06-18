@@ -60,7 +60,7 @@ class TreeSampler(Sampler):
 
 if __name__ == '__main__':
     
-    from label_metric.dataset import OrchideaSOL
+    from label_metric.datasets import OrchideaSOL
     train_set = OrchideaSOL('train')
     sampler = TreeSampler(train_set, more_level = 1)
     print(len(sampler))
