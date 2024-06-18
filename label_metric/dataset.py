@@ -6,9 +6,11 @@ import random
 from torch.utils.data import Dataset
 from anytree import Node, find_by_attr, LevelOrderIter
 from tqdm import tqdm
+import torchaudio
 
 from label_metric.paths import OrchideaSOL_DIR
 from label_metric.utils.tree_utils import tree_to_string, iter_parent_nodes
+from label_metric.utils.audio_utils import standardize_duration
 
 logging.basicConfig(
     level = logging.INFO,
@@ -29,13 +31,18 @@ class OrchideaSOL(Dataset):
         
         self.data, self.tree = self.load_data()
         self.node_to_index = self.prepare_node_to_index_mapping()
-        self.add_num_per_node()
+        self.update_node_name_with_num()
 
     def __len__(self) -> int:
         return len(self.data)
     
     def __getitem__(self, idx) -> Dict:
-        return self.data[idx]
+        # load audio on the fly
+        data = self.data[idx]
+        y, sr = torchaudio.load(data['path'])
+        assert sr == 44100
+        data['audio'] = standardize_duration(y, sr=sr, dur=1.0)
+        return data
 
     def __str__(self) -> str:
         return tree_to_string(self.tree)
@@ -131,7 +138,7 @@ class OrchideaSOL(Dataset):
                 node_to_index[ancestor] += node_to_index[leaf]
         return node_to_index
         
-    def add_num_per_node(self) -> None:
+    def update_node_name_with_num(self) -> None:
         for node in LevelOrderIter(self.tree):
             node.name = f'{node.name} {len(self.node_to_index[node])}'
         logger.info(f'\n\n-> loading OrchideaSOL {self.split}\n\n{self.__str__()}\n')
@@ -142,8 +149,8 @@ class OrchideaSOL(Dataset):
 
 if __name__ == '__main__':
 
-    # test
-
     import lightning as L
     L.seed_everything(2024)
     train_set = OrchideaSOL(split='train')
+    valid_set = OrchideaSOL(split='valid')
+    test_set = OrchideaSOL(split='test')

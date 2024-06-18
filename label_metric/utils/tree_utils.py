@@ -108,4 +108,3 @@ if __name__ == '__main__':
             print('the parent node: ', node)
             print('children: ', node.children)
     
-    

@@ -12,3 +12,4 @@ if __name__ == '__main__':
     print(CONFIGS_DIR)
     print(DATA_DIR)
     print(OrchideaSOL_DIR)
+    

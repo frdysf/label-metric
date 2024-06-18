@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 
 def standardize_duration(y: torch.Tensor, 
-                         sr: int, 
+                         sr: int = 44100, 
                          dur: float = 1.0) -> torch.Tensor:
     n_samples = y.shape[1]
     target_samples = int(sr * dur)
@@ -14,6 +14,8 @@ def standardize_duration(y: torch.Tensor,
     return y
 
 if __name__ == '__main__':
+
     x = torch.ones(1,4)
     sr = 5
     print(standardize_duration(x, sr))
+    
