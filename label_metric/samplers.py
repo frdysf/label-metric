@@ -8,7 +8,7 @@ from torch.utils.data import Dataset, Sampler
 
 from label_metric.utils.tree_utils import iter_parent_nodes, node_distance, tree_to_string
 
-class TreeSampler(Sampler):
+class SampleTripletsFromTree(Sampler):
 
     def __init__(
         self, 
@@ -20,17 +20,17 @@ class TreeSampler(Sampler):
         self.data = data
         self.more_level = more_level
         self.logger = logger
-
         self.triplets = self.sample()
         self.logger.info(
-            f'{len(self.triplets)} triplets '
-            'are sampled for each training epoch'
+            'Each training epoch has '
+            f'{len(self.triplets)} triplets'
         )
 
     def __len__(self) -> int:
         return len(self.triplets)
 
     def __iter__(self) -> Iterator[Tuple[int, int, int]]:
+        self.triplets = self.sample()
         random.shuffle(self.triplets)
         return iter(self.triplets)
 
@@ -106,7 +106,7 @@ if __name__ == '__main__':
         logger = logger
     )
 
-    sampler = TreeSampler(
+    sampler = SampleTripletsFromTree(
         data = train_set, 
         more_level = 0,
         logger = logger

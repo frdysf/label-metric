@@ -27,7 +27,7 @@ class OrchideaSOL(Dataset):
         self.dataset_dir = os.path.join(dataset_dir, 'OrchideaSOL2020')
         assert split in ['train', 'valid', 'test']
         self.split = split
-        self.MIN_NUM_PER_LEAF = min_num_per_leaf
+        self.min_num_per_leaf = min_num_per_leaf
         self.duration = duration
         assert train_ratio + valid_ratio <= 1
         self.train_ratio = train_ratio
@@ -70,7 +70,7 @@ class OrchideaSOL(Dataset):
                 cur_dir = os.path.join(root, child)
                 if not os.listdir(cur_dir)[0].endswith('.wav'): # if not leaf
                     node = Node(child, parent=find_by_attr(tree, parent))
-                elif len(os.listdir(cur_dir)) > self.MIN_NUM_PER_LEAF: # if leaf and has enough data
+                elif len(os.listdir(cur_dir)) > self.min_num_per_leaf: # if leaf and has enough data
                     node = Node(child, parent=find_by_attr(tree, parent))
                     leaf_node_to_dir[node] = cur_dir
         
