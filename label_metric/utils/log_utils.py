@@ -9,7 +9,7 @@ def setup_logger(logger, log_fn=None):
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_format = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s', 
+        '%(asctime)s - %(message)s', 
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     console_handler.setFormatter(console_format)
@@ -20,7 +20,7 @@ def setup_logger(logger, log_fn=None):
         file_handler = logging.FileHandler(log_fn)
         file_handler.setLevel(logging.DEBUG)
         file_format = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s', 
+            '%(asctime)s - %(message)s', 
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         file_handler.setFormatter(file_format)
