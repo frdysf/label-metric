@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 import logging
 import random
 
@@ -34,18 +34,13 @@ class OrchideaSOL(Dataset):
     def __len__(self) -> int:
         return len(self.data)
     
-    def __getitem__(self, idxs: Tuple) -> Dict:
-        a_idx, p_idx, n_idx = idxs
-        return {
-            'anc': self.prepare_item(a_idx),
-            'pos': self.prepare_item(p_idx),
-            'neg': self.prepare_item(n_idx)
-        }
+    def __getitem__(self, idx: Any) -> Any:
+        raise NotImplementedError
 
     def __str__(self) -> str:
         return tree_to_string(self.tree)
 
-    def prepare_item(self, idx: int):
+    def prepare_item(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         audio_path = self.data[idx]['path']
         label = self.data[idx]['label']
         audio, sr = torchaudio.load(audio_path)
@@ -55,7 +50,7 @@ class OrchideaSOL(Dataset):
         audio = torch.squeeze(audio, 0)
         return audio, torch.tensor(label)
     
-    def load_tree(self) -> Tuple[Node, Dict]:
+    def load_tree(self) -> Tuple[Node, Dict[Node, str]]:
 
         leaf_node_to_dir = {}
         for root, children, _ in os.walk(self.dataset_dir):
@@ -95,7 +90,7 @@ class OrchideaSOL(Dataset):
         
         return tree, leaf_node_to_dir
 
-    def load_data(self) -> Tuple[List[Dict], Node]:
+    def load_data(self) -> Tuple[List[Dict[str, Any]], Node]:
 
         dataset = []
         tree, leaf_node_to_dir = self.load_tree()
@@ -133,7 +128,7 @@ class OrchideaSOL(Dataset):
 
         return dataset, tree
 
-    def prepare_node_to_index_mapping(self) -> Dict:
+    def prepare_node_to_index_mapping(self) -> Dict[Node, List]:
         node_to_index = {}
         for leaf in self.tree.leaves:
             node_to_index[leaf] = []
@@ -153,6 +148,47 @@ class OrchideaSOL(Dataset):
         logger.info(f'Loaded {self.split} set data\n{self.__str__()}')
 
 
+class BasicOrchideaSOL(OrchideaSOL):
+
+    def __init__(
+        self, 
+        split: str, 
+        dataset_dir: str = OrchideaSOL_DIR
+        ) -> None:
+
+        super().__init__(split, dataset_dir)
+    
+    def __getitem__(
+        self, 
+        idx: int
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+
+        return self.prepare_item(idx)
+
+
+class TripletOrchideaSOL(OrchideaSOL):
+
+    def __init__(
+        self, 
+        split: str, 
+        dataset_dir: str = OrchideaSOL_DIR
+        ) -> None:
+
+        super().__init__(split, dataset_dir)
+    
+    def __getitem__(
+        self, 
+        idxs: Tuple[int, int, int]
+        ) -> Dict[str, Tuple[torch.Tensor, torch.Tensor]]:
+
+        a_idx, p_idx, n_idx = idxs
+        return {
+            'anc': self.prepare_item(a_idx),
+            'pos': self.prepare_item(p_idx),
+            'neg': self.prepare_item(n_idx)
+        }
+
+
 # TODO: AudioSet
 
 
@@ -160,6 +196,6 @@ if __name__ == '__main__':
 
     import lightning as L
     L.seed_everything(2024)
-    train_set = OrchideaSOL(split='train')
-    valid_set = OrchideaSOL(split='valid')
-    test_set = OrchideaSOL(split='test')
+    train_set = TripletOrchideaSOL(split='train')
+    valid_set = BasicOrchideaSOL(split='valid')
+    test_set = BasicOrchideaSOL(split='test')

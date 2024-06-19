@@ -72,16 +72,26 @@ class TreeSampler(Sampler):
 if __name__ == '__main__':
     
     import lightning as L
-    L.seed_everything(2024)
-    from label_metric.datasets import OrchideaSOL
-    train_set = OrchideaSOL('train')
-    sampler = TreeSampler(train_set, more_level = 0)
-    print(next(iter(sampler)))
     from torch.utils.data import DataLoader
+    from label_metric.datasets import TripletOrchideaSOL, BasicOrchideaSOL
+
+    L.seed_everything(2024)
+
+    train_set = TripletOrchideaSOL('train')
+    sampler = TreeSampler(train_set, more_level = 1)
     train_loader = DataLoader(train_set,
-                              batch_size = 2,
+                              batch_size = 32,
                               sampler = sampler,
-                              num_workers = 0,
+                              num_workers = 2,
                               drop_last = False)
     x, y = next(iter(train_loader))['anc']
     print(x.shape, y.shape)
+    
+    # valid_set = BasicOrchideaSOL('valid')
+    # valid_loader = DataLoader(valid_set,
+    #                           batch_size = 2,
+    #                           num_workers = 0,
+    #                           shuffle = True,
+    #                           drop_last = False)
+    # x, y = next(iter(valid_loader))
+    # print(x, y)
