@@ -18,8 +18,10 @@ class TreeSampler(Sampler):
         self.data = data
         self.more_level = more_level
         self.triplets = self.sample()
-        logger.info(f'{len(self.triplets)} triplets '
-                    'are sampled for each training epoch')
+        logger.info(
+            f'{len(self.triplets)} triplets '
+            'are sampled for each training epoch'
+        )
 
     def __len__(self) -> int:
         return len(self.triplets)
@@ -49,7 +51,10 @@ class TreeSampler(Sampler):
         # more level starts from pos
         more_level = min(root.height - 1, self.more_level)
         for pos, neg in permutations(root.children, 2):
-            logger.debug(f"pos: {pos.name.split(' ')[0]}, neg: {neg.name.split(' ')[0]}")
+            logger.debug(
+                f"pos: {pos.name.split(' ')[0]}, "
+                f"neg: {neg.name.split(' ')[0]}"
+            )
             shallow_leaf_nodes = [node for node in pos.leaves \
                                   if node_distance(pos, node) < more_level]
             more_level_nodes = list(list(LevelOrderGroupIter(pos))[more_level])
@@ -61,7 +66,10 @@ class TreeSampler(Sampler):
                 triplets.append((idx_a, idx_p, idx_n))
             else:
                 for node_a, node_p in combinations(nodes, 2):
-                    logger.debug(f"x_a: {node_a.name.split(' ')[0]}, x_p: {node_p.name.split(' ')[0]}")
+                    logger.debug(
+                        f"x_a: {node_a.name.split(' ')[0]}, "
+                        f"x_p: {node_p.name.split(' ')[0]}"
+                    )
                     idx_a = random.choice(self.data.node_to_index[node_a])
                     idx_p = random.choice(self.data.node_to_index[node_p])
                     idx_n = random.choice(self.data.node_to_index[neg])

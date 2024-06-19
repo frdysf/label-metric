@@ -6,26 +6,33 @@ import random
 import torch
 from torch.utils.data import Dataset
 from anytree import Node, find_by_attr, LevelOrderIter
-from tqdm import tqdm
 import torchaudio
 
-from label_metric.paths import OrchideaSOL_DIR
 from label_metric.utils.tree_utils import tree_to_string, iter_parent_nodes
 from label_metric.utils.audio_utils import standardize_duration
-from label_metric.utils.log_utils import setup_logger
-
-logger = logging.getLogger(__name__)
-setup_logger(logger)
-
-MIN_NUM_PER_LEAF = 10
 
 class OrchideaSOL(Dataset):
     
-    def __init__(self, split: str, dataset_dir: str = OrchideaSOL_DIR):
+    def __init__(
+        self, 
+        dataset_dir: str,
+        split: str,
+        min_num_per_leaf: int,
+        duration: float,
+        train_ratio: float,
+        valid_ratio: float,
+        logger: logging.Logger
+    ) -> None:
         
         self.dataset_dir = os.path.join(dataset_dir, 'OrchideaSOL2020')
         assert split in ['train', 'valid', 'test']
         self.split = split
+        self.MIN_NUM_PER_LEAF = min_num_per_leaf
+        self.duration = duration
+        assert train_ratio + valid_ratio <= 1
+        self.train_ratio = train_ratio
+        self.valid_ratio = valid_ratio
+        self.logger = logger
         
         self.data, self.tree = self.load_data()
         self.node_to_index = self.prepare_node_to_index_mapping()
@@ -44,9 +51,9 @@ class OrchideaSOL(Dataset):
         audio_path = self.data[idx]['path']
         label = self.data[idx]['label']
         audio, sr = torchaudio.load(audio_path)
-        assert sr == 44100
-        audio = standardize_duration(audio, sr=sr, dur=1.0)
         assert audio.shape[0] == 1 # one channel
+        assert sr == 44100
+        audio = standardize_duration(audio, sr=sr, dur=self.duration)
         audio = torch.squeeze(audio, 0)
         return audio, torch.tensor(label)
     
@@ -63,7 +70,7 @@ class OrchideaSOL(Dataset):
                 cur_dir = os.path.join(root, child)
                 if not os.listdir(cur_dir)[0].endswith('.wav'): # if not leaf
                     node = Node(child, parent=find_by_attr(tree, parent))
-                elif len(os.listdir(cur_dir)) > MIN_NUM_PER_LEAF: # if leaf and has enough data
+                elif len(os.listdir(cur_dir)) > self.MIN_NUM_PER_LEAF: # if leaf and has enough data
                     node = Node(child, parent=find_by_attr(tree, parent))
                     leaf_node_to_dir[node] = cur_dir
         
@@ -101,8 +108,8 @@ class OrchideaSOL(Dataset):
             
             # shuffle and split
             random.shuffle(audio_files)
-            train_size = int(0.8 * len(audio_files))
-            valid_size = int(0.1 * len(audio_files))
+            train_size = int(self.train_ratio * len(audio_files))
+            valid_size = int(self.valid_ratio * len(audio_files))
             if self.split == 'train':
                 audio_files = audio_files[:train_size]
             elif self.split == 'valid':
@@ -145,23 +152,36 @@ class OrchideaSOL(Dataset):
     def update_node_name_with_num(self) -> None:
         for node in LevelOrderIter(self.tree):
             node.name = f'{node.name} {len(self.node_to_index[node])}'
-        logger.info(f'Loaded {self.split} set data\n{self.__str__()}')
+        self.logger.info(f'Load {self.split} set data\n{self.__str__()}')
 
 
 class BasicOrchideaSOL(OrchideaSOL):
 
     def __init__(
         self, 
-        split: str, 
-        dataset_dir: str = OrchideaSOL_DIR
-        ) -> None:
+        dataset_dir: str,
+        split: str,
+        min_num_per_leaf: int,
+        duration: float,
+        train_ratio: float,
+        valid_ratio: float,
+        logger: logging.Logger
+    ) -> None:
 
-        super().__init__(split, dataset_dir)
+        super().__init__(
+            dataset_dir,
+            split,
+            min_num_per_leaf,
+            duration,
+            train_ratio,
+            valid_ratio,
+            logger
+        )
     
     def __getitem__(
         self, 
         idx: int
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         return self.prepare_item(idx)
 
@@ -170,32 +190,74 @@ class TripletOrchideaSOL(OrchideaSOL):
 
     def __init__(
         self, 
-        split: str, 
-        dataset_dir: str = OrchideaSOL_DIR
-        ) -> None:
+        dataset_dir: str,
+        split: str,
+        min_num_per_leaf: int,
+        duration: float,
+        train_ratio: float,
+        valid_ratio: float,
+        logger: logging.Logger
+    ) -> None:
 
-        super().__init__(split, dataset_dir)
+        super().__init__(
+            dataset_dir,
+            split,
+            min_num_per_leaf,
+            duration,
+            train_ratio,
+            valid_ratio,
+            logger
+        )
     
     def __getitem__(
         self, 
         idxs: Tuple[int, int, int]
-        ) -> Dict[str, Tuple[torch.Tensor, torch.Tensor]]:
+    ) -> Dict[str, Tuple[torch.Tensor, torch.Tensor]]:
 
         a_idx, p_idx, n_idx = idxs
         return {
             'anc': self.prepare_item(a_idx),
             'pos': self.prepare_item(p_idx),
-            'neg': self.prepare_item(n_idx)
+            'neg': self.prepare_item(n_idx),
         }
-
-
-# TODO: AudioSet
 
 
 if __name__ == '__main__':
 
+    # example code
+
     import lightning as L
     L.seed_everything(2024)
-    train_set = TripletOrchideaSOL(split='train')
-    valid_set = BasicOrchideaSOL(split='valid')
-    test_set = BasicOrchideaSOL(split='test')
+    from label_metric.utils.log_utils import setup_logger
+    logger = logging.getLogger(__name__)
+    setup_logger(logger)
+
+    train_set = TripletOrchideaSOL(
+        dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+        split = 'train',
+        min_num_per_leaf = 10,
+        duration = 1.0,
+        train_ratio = 0.8,
+        valid_ratio = 0.1,
+        logger = logger
+    )
+
+    valid_set = BasicOrchideaSOL(
+        dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+        split = 'valid',
+        min_num_per_leaf = 10,
+        duration = 1.0,
+        train_ratio = 0.8,
+        valid_ratio = 0.1,
+        logger = logger        
+    )
+
+    test_set = BasicOrchideaSOL(
+        dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+        split = 'test',
+        min_num_per_leaf = 10,
+        duration = 1.0,
+        train_ratio = 0.8,
+        valid_ratio = 0.1,
+        logger = logger        
+    )
