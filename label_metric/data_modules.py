@@ -18,7 +18,8 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         more_level: int,
         batch_size: int, 
         num_workers: int
-        ) -> None:
+    ) -> None:
+    
         self.dataset_dir = dataset_dir
         self.min_num_per_leaf = min_num_per_leaf
         self.duration = duration
@@ -109,7 +110,7 @@ if __name__ == '__main__':
         train_ratio = 0.8,
         valid_ratio = 0.1,
         logger = logger,
-        more_level = 1,
+        more_level = 2,
         batch_size = 32, 
         num_workers = 2
     )
