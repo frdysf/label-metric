@@ -32,27 +32,18 @@ class PlaceHolderModel(Audio2MelSpec):
 
     def __init__(
         self,
-        sr: int,
-        n_fft: int,
-        hop_length: int,
-        output_dim: int
+        output_dim: int,
+        **kwargs
     ) -> None:
 
-        super().__init__(
-            sr = sr,
-            n_fft = n_fft,
-            hop_length = hop_length
-        )
-
-        n_mels = 128 # default in MelSpectrogram
-        n_times = torch.ceil(torch.tensor(44100 / hop_length)).int() # OrchideaSol default length
-
-        self.linear = nn.Linear(n_mels * n_times, output_dim)
+        super().__init__(**kwargs)
+        self.output_dim = output_dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
 
         x = self.melspec(x)
         x = torch.reshape(x, (x.shape[0], -1))
+        self.linear = nn.Linear(x.shape[1], self.output_dim)
         x = self.linear(x)
 
         return x
