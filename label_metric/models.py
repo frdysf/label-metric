@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torchaudio.transforms import MelSpectrogram
 
-class BaseBackbone(nn.Module):
+class Audio2MelSpec(nn.Module):
 
     def __init__(
         self,
@@ -21,14 +21,14 @@ class BaseBackbone(nn.Module):
             hop_length = hop_length
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
 
         x = self.melspec(x)
 
         return x
 
 
-class PlaceHolderModel(BaseBackbone):
+class PlaceHolderModel(Audio2MelSpec):
 
     def __init__(
         self,
@@ -44,12 +44,12 @@ class PlaceHolderModel(BaseBackbone):
             hop_length = hop_length
         )
 
-        n_mels = 128
-        n_times = torch.ceil(torch.tensor(44100 / hop_length)).int()
+        n_mels = 128 # default in MelSpectrogram
+        n_times = torch.ceil(torch.tensor(44100 / hop_length)).int() # OrchideaSol default length
 
         self.linear = nn.Linear(n_mels * n_times, output_dim)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
 
         x = self.melspec(x)
         x = torch.reshape(x, (x.shape[0], -1))
@@ -63,40 +63,28 @@ if __name__ == '__main__':
     # example code
     
     import lightning as L
-    from torch.utils.data import DataLoader
-
-    from label_metric.datasets import TripletOrchideaSOL, BasicOrchideaSOL
-    from label_metric.samplers import SampleTripletsFromTree
+    L.seed_everything(2024)
+    
     from label_metric.utils.log_utils import setup_logger
-
     logger = logging.getLogger(__name__)
     setup_logger(logger)
 
-    L.seed_everything(2024)
+    from label_metric.data_modules import OrchideaSOLDataModule
 
-    train_set = TripletOrchideaSOL(
+    data_module = OrchideaSOLDataModule(
         dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
-        split = 'train',
         min_num_per_leaf = 10,
         duration = 1.0,
         train_ratio = 0.8,
         valid_ratio = 0.1,
-        logger = logger
+        logger = logger,
+        more_level = 2,
+        batch_size = 32, 
+        num_workers = 2
     )
 
-    sampler = SampleTripletsFromTree(
-        data = train_set, 
-        more_level = 0,
-        logger = logger
-    )
-
-    train_loader = DataLoader(
-        train_set,
-        batch_size = 32,
-        sampler = sampler,
-        num_workers = 0,
-        drop_last = True
-    )
+    data_module.setup('fit')
+    train_loader = data_module.train_dataloader()
     
     batch = next(iter(train_loader))
 
