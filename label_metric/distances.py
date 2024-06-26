@@ -2,7 +2,25 @@ import logging
 
 from pytorch_metric_learning.distances import CosineSimilarity, LpDistance, BaseDistance
 
+import label_metric.hyperbolic.pmath as pmath
+
 # TODO: add hyperbolic distance using BaseDistance
+# HyperbolicDist should only take hyperbolic embeddings
+
+class HyperbolicDist(BaseDistance):
+
+    def __init__(
+        self,
+        **kwargs
+    ) -> None:
+
+        super.__init__(**kwargs)
+    
+    def compute_mat(self, query_emb, ref_emb):
+        pass
+
+    def pairwise_distance(self, query_emb, ref_emb):
+        pass
 
 if __name__ == '__main__':
 
