@@ -30,11 +30,7 @@ class Audio2MelSpec(nn.Module):
 
 class PlaceHolderModel(Audio2MelSpec):
 
-    def __init__(
-        self,
-        output_dim: int,
-        **kwargs
-    ) -> None:
+    def __init__(self, output_dim: int, **kwargs):
 
         super().__init__(**kwargs)
         self.output_dim = output_dim

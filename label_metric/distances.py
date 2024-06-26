@@ -4,23 +4,24 @@ from pytorch_metric_learning.distances import CosineSimilarity, LpDistance, Base
 
 import label_metric.hyperbolic.pmath as pmath
 
-# TODO: add hyperbolic distance using BaseDistance
-# HyperbolicDist should only take hyperbolic embeddings
-
 class HyperbolicDist(BaseDistance):
 
-    def __init__(
-        self,
-        **kwargs
-    ) -> None:
+    def __init__(self, c=1.0, **kwargs):
 
-        super.__init__(**kwargs)
+        super().__init__(**kwargs)
+        assert not self.is_inverted
+        self.c = c
     
     def compute_mat(self, query_emb, ref_emb):
-        pass
+        if ref_emb is None:
+            ref_emb = query_emb
+        query_emb = query_emb.unsqueeze(1)
+        ref_emb = ref_emb.unsqueeze(0)
+        return pmath.dist(query_emb, ref_emb, c=self.c)
 
     def pairwise_distance(self, query_emb, ref_emb):
-        pass
+        return pmath.dist(query_emb, ref_emb, c=self.c)
+
 
 if __name__ == '__main__':
 
@@ -76,3 +77,10 @@ if __name__ == '__main__':
     D = dist.pairwise_distance(y_a, y_p)
 
     print(f'pairwise distance: {D.shape}')
+
+    # this is a test, in practice HyperbolicDist should only take hyperbolic embeddings
+
+    h_dist = HyperbolicDist()
+    hyperD = h_dist.pairwise_distance(y_a, y_p)
+
+    print(f'hyperbolic distance: {hyperD.shape}')
