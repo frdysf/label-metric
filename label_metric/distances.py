@@ -1,13 +1,14 @@
-import logging
-
-from pytorch_metric_learning.distances import CosineSimilarity, LpDistance, BaseDistance
+from pytorch_metric_learning.distances import (
+    CosineSimilarity, 
+    LpDistance, 
+    BaseDistance
+)
 
 import label_metric.hyperbolic.pmath as pmath
 
 class PoincareDist(BaseDistance):
 
     def __init__(self, c=1.0, **kwargs):
-
         super().__init__(**kwargs)
         assert not self.is_inverted
         self.c = c
@@ -24,13 +25,14 @@ class PoincareDist(BaseDistance):
 if __name__ == '__main__':
 
     # example code
-    
-    import lightning as L
-    L.seed_everything(2024)
-    
+
+    import logging
     from label_metric.utils.log_utils import setup_logger
     logger = logging.getLogger(__name__)
     setup_logger(logger)
+
+    import lightning as L
+    L.seed_everything(2024)
 
     from label_metric.data_modules import OrchideaSOLDataModule
 
