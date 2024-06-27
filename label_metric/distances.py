@@ -4,7 +4,7 @@ from pytorch_metric_learning.distances import CosineSimilarity, LpDistance, Base
 
 import label_metric.hyperbolic.pmath as pmath
 
-class HyperbolicDist(BaseDistance):
+class PoincareDist(BaseDistance):
 
     def __init__(self, c=1.0, **kwargs):
 
@@ -15,9 +15,7 @@ class HyperbolicDist(BaseDistance):
     def compute_mat(self, query_emb, ref_emb):
         if ref_emb is None:
             ref_emb = query_emb
-        query_emb = query_emb.unsqueeze(1)
-        ref_emb = ref_emb.unsqueeze(0)
-        return pmath.dist(query_emb, ref_emb, c=self.c)
+        return pmath.dist_matrix(query_emb, ref_emb, c=self.c)
 
     def pairwise_distance(self, query_emb, ref_emb):
         return pmath.dist(query_emb, ref_emb, c=self.c)
@@ -78,9 +76,9 @@ if __name__ == '__main__':
 
     print(f'pairwise distance: {D.shape}')
 
-    # this is a test, in practice HyperbolicDist should only take hyperbolic embeddings
+    # this is a test, in practice PoincareDist should only take poincare embeddings
 
-    h_dist = HyperbolicDist()
-    hyperD = h_dist.pairwise_distance(y_a, y_p)
+    pdist = PoincareDist()
+    pD = pdist.pairwise_distance(y_a, y_p)
 
-    print(f'hyperbolic distance: {hyperD.shape}')
+    print(f'hyperbolic distance: {pD.shape}')
