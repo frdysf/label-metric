@@ -1,10 +1,7 @@
 from pytorch_metric_learning.distances import (
-    CosineSimilarity, 
-    LpDistance, 
-    BaseDistance
-)
+    CosineSimilarity, LpDistance, BaseDistance)
 
-import label_metric.hyperbolic.pmath as pmath
+from label_metric.hyperbolic import pmath
 
 class PoincareDist(BaseDistance):
 

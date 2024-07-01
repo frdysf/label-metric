@@ -1,12 +1,28 @@
 from itertools import combinations, permutations
 import random
-from typing import List, Tuple, Iterator
+from typing import List, Tuple, Iterator, Dict
 import logging
 
+import torch
 from anytree import Node, LevelOrderGroupIter
 from torch.utils.data import Dataset, Sampler
 
-from label_metric.utils.tree_utils import iter_parent_nodes, node_distance, tree_to_string
+from label_metric.utils.tree_utils import (
+    iter_parent_nodes, node_distance, tree_to_string)
+
+
+class WeightManager():
+
+    def update_weights(self, counts: Dict[str, torch.Tensor]):
+        weights = {}
+        for k, cnt in counts.items():
+            w = 1 / cnt
+            weights[k] = w / w.sum()
+        self.weights = weights
+
+    def get_weights(self):
+        return self.weights
+
 
 class SampleTripletsFromTree(Sampler):
 
@@ -14,16 +30,16 @@ class SampleTripletsFromTree(Sampler):
         self, 
         data: Dataset, 
         more_level: int,
-        logger: logging.Logger
+        logger: logging.Logger,
+        weight_manager: WeightManager
     ):
-
         self.data = data
         self.more_level = more_level
         self.logger = logger
+        self.weight_manager = weight_manager
         self.triplets = self.sample()
         self.logger.info(
-            'Each training epoch has '
-            f'{len(self.triplets)} triplets'
+            f'Each training epoch has {len(self.triplets)} triplets'
         )
 
     def __len__(self) -> int:
@@ -36,11 +52,18 @@ class SampleTripletsFromTree(Sampler):
 
     def sample(self) -> List[Tuple[int, int, int]]:
         triplets = []
+        num_classes = len(self.data.tree.leaves)
+        self.counter = {
+            'anc': torch.zeros(num_classes),
+            'pos': torch.zeros(num_classes),
+            'neg': torch.zeros(num_classes)
+        }
         for nodes in iter_parent_nodes(self.data.tree):
             for parent_node in nodes:
                 self.logger.debug(f'visiting {parent_node}')
                 self.logger.debug(tree_to_string(parent_node))
                 triplets += self.sample_subtree(parent_node)
+        self.weight_manager.update_weights(self.counter)
         return triplets
                 
     def sample_subtree(self, root: Node) -> List[Tuple[int, int, int]]:
@@ -52,8 +75,7 @@ class SampleTripletsFromTree(Sampler):
         triplets = []
         if len(root.children) == 1:
             return triplets
-        # more level under pos
-        more_level = min(root.height - 1, self.more_level)
+        more_level = min(root.height - 1, self.more_level) # under pos
         for pos, neg in permutations(root.children, 2):
             self.logger.debug(
                 f"pos: {pos.name.split(' ')[0]}, "
@@ -68,6 +90,7 @@ class SampleTripletsFromTree(Sampler):
                 idx_a, idx_p = random.sample(self.data.node_to_index[nodes[0]], 2)
                 idx_n = random.choice(self.data.node_to_index[neg])
                 triplets.append((idx_a, idx_p, idx_n))
+                self._count_classes(idx_a, idx_p, idx_n)
             else:
                 for node_a, node_p in combinations(nodes, 2):
                     self.logger.debug(
@@ -78,7 +101,13 @@ class SampleTripletsFromTree(Sampler):
                     idx_p = random.choice(self.data.node_to_index[node_p])
                     idx_n = random.choice(self.data.node_to_index[neg])
                     triplets.append((idx_a, idx_p, idx_n))
+                    self._count_classes(idx_a, idx_p, idx_n)
         return triplets
+
+    def _count_classes(self, idx_a, idx_p, idx_n):
+        self.counter['anc'][self.data.data[idx_a]['label']] += 1
+        self.counter['pos'][self.data.data[idx_p]['label']] += 1
+        self.counter['neg'][self.data.data[idx_n]['label']] += 1
 
 
 if __name__ == '__main__':
@@ -112,7 +141,24 @@ if __name__ == '__main__':
         logger = logger
     )
 
-    print(f'the first triplet indices: {next(iter(sampler))}')
+    # print(f'the first triplet indices: {next(iter(sampler))}')
+
+    import torch
+    anchor_weights = torch.zeros(len(train_set.tree.leaves))
+    for item in sampler:
+        label = train_set[item]['anc'][1]
+        anchor_weights[label] += 1
+    print(anchor_weights)
+
+    """
+    weights will change as per epoch.
+    reason: we are getting the same nodes,
+    but if sampling from a superclass (has children),
+
+    we are not guaranteed which fine-grained class we're getting
+    how to decide the class weight?
+    can we iterate over a epoch first before it is actually iterated to compute loss?
+    """
 
     train_loader = DataLoader(
         train_set,
