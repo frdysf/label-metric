@@ -22,7 +22,7 @@ class OrchideaSOL(Dataset):
         train_ratio: float,
         valid_ratio: float,
         logger: logging.Logger
-    ) -> None:
+    ):
         
         self.dataset_dir = os.path.join(dataset_dir, 'OrchideaSOL2020')
         assert split in ['train', 'valid', 'test']
@@ -166,7 +166,7 @@ class BasicOrchideaSOL(OrchideaSOL):
         train_ratio: float,
         valid_ratio: float,
         logger: logging.Logger
-    ) -> None:
+    ):
 
         super().__init__(
             dataset_dir,
@@ -197,7 +197,7 @@ class TripletOrchideaSOL(OrchideaSOL):
         train_ratio: float,
         valid_ratio: float,
         logger: logging.Logger
-    ) -> None:
+    ):
 
         super().__init__(
             dataset_dir,

@@ -15,7 +15,7 @@ class SampleTripletsFromTree(Sampler):
         data: Dataset, 
         more_level: int,
         logger: logging.Logger
-    ) -> None:
+    ):
 
         self.data = data
         self.more_level = more_level

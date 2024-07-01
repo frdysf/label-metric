@@ -11,7 +11,7 @@ class Audio2MelSpec(nn.Module):
         sr: int,
         n_fft: int,
         hop_length: int
-    ) -> None:
+    ):
 
         super().__init__()
 
@@ -28,12 +28,14 @@ class Audio2MelSpec(nn.Module):
         return x
 
 
-class PlaceHolderModel(Audio2MelSpec):
+class PlaceHolderModel(nn.Module):
 
     def __init__(self, output_dim: int, **kwargs):
 
-        super().__init__(**kwargs)
+        super().__init__()
+
         self.output_dim = output_dim
+        self.melspec = Audio2MelSpec(**kwargs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
 
