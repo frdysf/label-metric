@@ -13,14 +13,19 @@ from label_metric.utils.tree_utils import (
 
 class WeightManager():
 
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+
     def update_weights(self, counts: Dict[str, torch.Tensor]):
         weights = {}
         for k, cnt in counts.items():
             w = 1 / cnt
             weights[k] = w / w.sum()
         self.weights = weights
+        self.logger.debug('class weights have been updated')
 
-    def get_weights(self):
+    def get_weights(self) -> Dict[str, torch.Tensor]:
+        self.logger.debug('retrieving class weights')
         return self.weights
 
 
@@ -135,7 +140,7 @@ if __name__ == '__main__':
         logger = logger
     )
 
-    weight_manager = WeightManager()
+    weight_manager = WeightManager(logger)
 
     sampler = SampleTripletsFromTree(
         data = train_set, 

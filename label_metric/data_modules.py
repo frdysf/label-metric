@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 import lightning as L
 
 from label_metric.datasets import BasicOrchideaSOL, TripletOrchideaSOL
-from label_metric.samplers import SampleTripletsFromTree
+from label_metric.samplers import SampleTripletsFromTree, WeightManager
 
 class OrchideaSOLDataModule(L.LightningDataModule):
     
@@ -16,6 +16,7 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         valid_ratio: float,
         logger: logging.Logger,
         more_level: int,
+        weight_manager: WeightManager,
         batch_size: int, 
         num_workers: int
     ):
@@ -27,6 +28,7 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         self.valid_ratio = valid_ratio
         self.logger = logger
         self.more_level = more_level
+        self.weight_manager = weight_manager
         self.batch_size = batch_size
         self.num_workers = num_workers
 
@@ -44,7 +46,8 @@ class OrchideaSOLDataModule(L.LightningDataModule):
             self.triplet_sampler = SampleTripletsFromTree(
                 data = self.train_set, 
                 more_level = self.more_level, 
-                logger = self.logger
+                logger = self.logger,
+                weight_manager = self.weight_manager
             )
             self.valid_set = BasicOrchideaSOL(
                 dataset_dir = self.dataset_dir,
@@ -103,6 +106,8 @@ if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     setup_logger(logger)
 
+    weight_manager = WeightManager(logger)
+
     dm = OrchideaSOLDataModule(
         dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
         min_num_per_leaf = 10,
@@ -111,6 +116,7 @@ if __name__ == '__main__':
         valid_ratio = 0.1,
         logger = logger,
         more_level = 2,
+        weight_manager = weight_manager,
         batch_size = 32, 
         num_workers = 2
     )
