@@ -135,30 +135,14 @@ if __name__ == '__main__':
         logger = logger
     )
 
+    weight_manager = WeightManager()
+
     sampler = SampleTripletsFromTree(
         data = train_set, 
-        more_level = 0,
-        logger = logger
+        more_level = 1,
+        logger = logger,
+        weight_manager = weight_manager
     )
-
-    # print(f'the first triplet indices: {next(iter(sampler))}')
-
-    import torch
-    anchor_weights = torch.zeros(len(train_set.tree.leaves))
-    for item in sampler:
-        label = train_set[item]['anc'][1]
-        anchor_weights[label] += 1
-    print(anchor_weights)
-
-    """
-    weights will change as per epoch.
-    reason: we are getting the same nodes,
-    but if sampling from a superclass (has children),
-
-    we are not guaranteed which fine-grained class we're getting
-    how to decide the class weight?
-    can we iterate over a epoch first before it is actually iterated to compute loss?
-    """
 
     train_loader = DataLoader(
         train_set,
@@ -170,10 +154,12 @@ if __name__ == '__main__':
     
     batch = next(iter(train_loader))
 
+    print("class weights of anchors in the first epoch:\n"
+          f"{weight_manager.get_weights()['anc']}")
     print("anchors in the first minibatch: "
           f"audio shape {batch['anc'][0].shape}, "
           f"label shape {batch['anc'][1].shape}")
     print("labels of the first triplet in the minibatch: "
-          f"anchor label: {batch['anc'][1][0]}, "
-          f"positive label: {batch['pos'][1][0]}, "
-          f"negative label: {batch['neg'][1][0]}")
+          f"anchor: {batch['anc'][1][0]}, "
+          f"positive: {batch['pos'][1][0]}, "
+          f"negative: {batch['neg'][1][0]}")
