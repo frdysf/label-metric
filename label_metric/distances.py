@@ -1,9 +1,8 @@
-from pytorch_metric_learning.distances import (
-    CosineSimilarity, LpDistance, BaseDistance)
+from pytorch_metric_learning.distances import BaseDistance
 
 from label_metric.hyperbolic import pmath
 
-class PoincareDist(BaseDistance):
+class PoincareDistance(BaseDistance):
 
     def __init__(self, c=1.0, **kwargs):
         super().__init__(**kwargs)
@@ -18,7 +17,6 @@ class PoincareDist(BaseDistance):
     def pairwise_distance(self, query_emb, ref_emb):
         return pmath.dist(query_emb, ref_emb, c=self.c)
 
-
 if __name__ == '__main__':
 
     # example code
@@ -32,6 +30,9 @@ if __name__ == '__main__':
     L.seed_everything(2024)
 
     from label_metric.data_modules import OrchideaSOLDataModule
+    from label_metric.samplers import WeightManager
+
+    weight_manager = WeightManager(logger)
 
     data_module = OrchideaSOLDataModule(
         dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
@@ -41,6 +42,7 @@ if __name__ == '__main__':
         valid_ratio = 0.1,
         logger = logger,
         more_level = 1,
+        weight_manager = weight_manager,
         batch_size = 32, 
         num_workers = 2
     )
@@ -69,15 +71,13 @@ if __name__ == '__main__':
 
     print(f'anchor: {y_a.shape}, positive: {y_p.shape}, negative: {y_n.shape}')
 
+    from pytorch_metric_learning.distances import LpDistance
     dist = LpDistance()
-
     D = dist.pairwise_distance(y_a, y_p)
-
     print(f'pairwise distance: {D.shape}')
 
-    # this is a test, in practice PoincareDist should only take poincare embeddings
+    # this is a test, in practice PoincareDistance should only take poincare embeddings
 
-    pdist = PoincareDist()
+    pdist = PoincareDistance()
     pD = pdist.pairwise_distance(y_a, y_p)
-
     print(f'hyperbolic distance: {pD.shape}')

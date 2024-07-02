@@ -20,7 +20,6 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         batch_size: int, 
         num_workers: int
     ):
-    
         self.dataset_dir = dataset_dir
         self.min_num_per_leaf = min_num_per_leaf
         self.duration = duration
