@@ -6,15 +6,8 @@ from torchaudio.transforms import MelSpectrogram
 
 class Audio2MelSpec(nn.Module):
 
-    def __init__(
-        self,
-        sr: int,
-        n_fft: int,
-        hop_length: int
-    ):
-
+    def __init__(self, sr: int, n_fft: int, hop_length: int):
         super().__init__()
-
         self.melspec = MelSpectrogram(
             sample_rate = sr,
             n_fft = n_fft,
@@ -22,9 +15,7 @@ class Audio2MelSpec(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-
         x = self.melspec(x)
-
         return x
 
 
@@ -45,6 +36,18 @@ class PlaceHolderModel(nn.Module):
         x = self.linear(x)
 
         return x
+
+
+class PredictionHead(nn.module):
+
+    def __init__(self, embedding_size: int, num_classes: int):
+        super().__init__()
+        self.embedding_size = embedding_size
+        self.num_classes = num_classes
+        self.linear = nn.Linear(emb_size, num_classes)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.linear(x)
     
 
 if __name__ == '__main__':

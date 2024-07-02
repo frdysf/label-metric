@@ -21,14 +21,18 @@ class TripletLoss(nn.Module):
         positive_embs: torch.Tensor,
         negative_embs: torch.Tensor
     ):
-        d_ap, d_an = self._compute_pairwise_dist(anchor_embs, positive_embs, negative_embs)
+        d_ap, d_an = self._compute_pairwise_distance(
+            anchor_embs, 
+            positive_embs, 
+            negative_embs
+        )
         if self.distance.is_inverted:
             losses = F.relu(self.margin - d_ap + d_an)
         else:
             losses = F.relu(self.margin + d_ap - d_an)
         return losses.mean()
 
-    def _compute_pairwise_dist(
+    def _compute_pairwise_distance(
         self, 
         anchor_embs: torch.Tensor, 
         positive_embs: torch.Tensor,
