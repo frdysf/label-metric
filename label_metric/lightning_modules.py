@@ -2,6 +2,7 @@ import logging
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import lightning as L
 
 from label_metric.samplers import WeightManager
@@ -13,12 +14,16 @@ class LabelMetricModule(L.LightningModule):
         self,
         backbone_model: nn.Module,
         prediction_head: nn.Module,
+        triplet_loss_fn: TripletLoss,
+        lambda_weight: float,
         my_logger: logging.Logger,
         weight_manager: WeightManager
     ):
         super().__init__()
         self.backbone_model = backbone_model
         self.prediction_head = prediction_head
+        self.triplet_loss_fn = triplet_loss_fn
+        self.lambda_weight = torch.tensor(lambda_weight)
         self.my_logger = my_logger
         self.weight_manager = weight_manager
 
@@ -27,12 +32,42 @@ class LabelMetricModule(L.LightningModule):
         return embeddings
 
     def training_step(self, batch, batch_idx):
-        pass
+        # anchors, positives, negatives
+        x_a, y_a = batch['anc']
+        x_p, y_p = batch['pos']
+        x_n, y_n = batch['neg']
+        # class weights
+        weights = self.weight_manager.get_weights()
+        w_a = weights['anc']
+        w_p = weights['pos']
+        w_n = weights['neg']
+        # embeddings
+        z_a = self(x_a)
+        z_p = self(x_p)
+        z_n = self(x_n)
+        # triplet loss
+        triplet_loss = self.triplet_loss_fn(
+            anchor_embs = z_a, 
+            positive_embs = z_p, 
+            negative_embs = z_n
+        )
+        # classification loss
+        logits_a = self.prediction_head(z_a)
+        classification_loss = F.cross_entropy(
+            input = logits_a, 
+            target = y_a,
+            weight = w_a
+        )
+        loss = self.lambda_weight * triplet_loss + (1 - self.lambda_weight) * classification_loss
+        print(triplet_loss, classification_loss, loss)
+        return loss
 
     def validation_step(self, batch, batch_idx):
         pass
 
 if __name__ == '__main__':
+
+    # example code
 
     import lightning as L
     L.seed_everything(2024)
@@ -61,8 +96,6 @@ if __name__ == '__main__':
     train_loader = dm.train_dataloader()
     valid_loader = dm.val_dataloader()
 
-    training_batch = next(iter(train_loader))
-
     from label_metric.models import PlaceHolderModel, PredictionHead
 
     backbone_model = PlaceHolderModel(
@@ -77,11 +110,18 @@ if __name__ == '__main__':
         num_classes = len(dm.train_set.tree.leaves)
     )
 
+    from pytorch_metric_learning.distances import CosineSimilarity
+
+    triplet_loss_fn = TripletLoss(margin=0.2, distance=CosineSimilarity())
+
     lightning_module = LabelMetricModule(
         backbone_model = backbone_model,
         prediction_head = prediction_head,
+        triplet_loss_fn = triplet_loss_fn,
+        lambda_weight = 0.5,
         my_logger = logger,
         weight_manager = weight_manager
     )
 
-    lightning_module.training_step(training_batch, batch_idx=0)
+    for i, batch in enumerate(train_loader):
+        lightning_module.training_step(batch, batch_idx=i)

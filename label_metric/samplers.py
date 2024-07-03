@@ -26,6 +26,7 @@ class WeightManager():
 
     def get_weights(self) -> Dict[str, torch.Tensor]:
         self.logger.debug('retrieving class weights')
+        assert hasattr(self, 'weights'), 'weights have not been updated yet'
         return self.weights
 
 
