@@ -38,13 +38,13 @@ class PlaceHolderModel(nn.Module):
         return x
 
 
-class PredictionHead(nn.module):
+class PredictionHead(nn.Module):
 
     def __init__(self, embedding_size: int, num_classes: int):
         super().__init__()
         self.embedding_size = embedding_size
         self.num_classes = num_classes
-        self.linear = nn.Linear(emb_size, num_classes)
+        self.linear = nn.Linear(embedding_size, num_classes)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(x)
