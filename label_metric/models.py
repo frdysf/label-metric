@@ -5,15 +5,16 @@ import torch.nn as nn
 from torchaudio.transforms import MelSpectrogram
 
 class Audio2MelSpec(nn.Module):
-
     def __init__(self, sr: int, n_fft: int, hop_length: int):
         super().__init__()
+        self.sr = sr
+        self.n_fft = n_fft
+        self.hop_length = hop_length
         self.melspec = MelSpectrogram(
             sample_rate = sr,
             n_fft = n_fft,
             hop_length = hop_length
         )
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.melspec(x)
         return x
@@ -38,14 +39,29 @@ class PlaceHolderModel(nn.Module):
         return x
 
 
-class PredictionHead(nn.Module):
+class ConvModel(nn.Module):
+    def __init__(
+        self, 
+        duration: float, 
+        embedding_size: int, 
+        **kwargs
+    ):
+        super().__init__()
+        self.duration = duration
+        self.embedding_size = embedding_size
+        self.melspec = Audio2MelSpec(**kwargs)
 
+    def _get_spec_shape(self) -> torch.Tensor:
+        _input_like = torch.randn([int(self.duration * self.melspec.sr)])
+        return self.melspec(_input_like).shape
+
+
+class PredictionHead(nn.Module):
     def __init__(self, embedding_size: int, num_classes: int):
         super().__init__()
         self.embedding_size = embedding_size
         self.num_classes = num_classes
         self.linear = nn.Linear(embedding_size, num_classes)
-    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(x)
     
@@ -95,3 +111,12 @@ if __name__ == '__main__':
     y = model(x)
 
     print(f"input shape: {x.shape}, output shape: {y.shape}")
+
+    model = ConvModel(
+        duration = 1.0,
+        embedding_size = 256,
+        sr = 44100,
+        n_fft = 2048,
+        hop_length = 512,
+    )
+    print(model._get_spec_shape())

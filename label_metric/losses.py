@@ -38,8 +38,8 @@ class TripletLoss(nn.Module):
         positive_embs: torch.Tensor,
         negative_embs: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # we don't use the forward() method in BaseDistance
-        # because it is based on the compute_mat() method
+        # we don't use BaseDistance forward()
+        # because it uses compute_mat(), too much computation
         assert anchor_embs.shape == positive_embs.shape == negative_embs.shape
         if self.distance.normalize_embeddings:
             anchor_embs = self.distance.normalize(anchor_embs)
@@ -57,9 +57,28 @@ if __name__ == '__main__':
     from pytorch_metric_learning.distances import CosineSimilarity, LpDistance
     from label_metric.distances import PoincareDistance
 
-    a = torch.randn([32, 256])
-    p = torch.randn([32, 256])
-    n = torch.randn([32, 256])
+    batch_num = 32
+    embedding_size = 256
+
+    a = torch.randn([batch_num, embedding_size])
+    p = torch.randn([batch_num, embedding_size])
+    n = torch.randn([batch_num, embedding_size])
+
+    loss_fn = TripletLoss(margin=0.1, distance=LpDistance())
+    loss = loss_fn(a, p, n)
+    print(loss)
+
+    loss_fn = TripletLoss(margin=0.1, distance=CosineSimilarity())
+    loss = loss_fn(a, p, n)
+    print(loss)
+
+    loss_fn = TripletLoss(margin=0.1, distance=PoincareDistance())
+    loss = loss_fn(a, p, n)
+    print(loss)
+
+    a = torch.tensor([[0., 1.]])
+    p = torch.tensor([[0., -1.]])
+    n = torch.tensor([[0., 1.]])
 
     loss_fn = TripletLoss(margin=0.1, distance=LpDistance())
     loss = loss_fn(a, p, n)

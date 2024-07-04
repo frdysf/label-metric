@@ -3,6 +3,7 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 import lightning as L
 
 from label_metric.samplers import WeightManager
@@ -17,7 +18,8 @@ class LabelMetricModule(L.LightningModule):
         triplet_loss_fn: TripletLoss,
         lambda_weight: float,
         my_logger: logging.Logger,
-        weight_manager: WeightManager
+        weight_manager: WeightManager,
+        learning_rate: float
     ):
         super().__init__()
         self.backbone_model = backbone_model
@@ -26,12 +28,14 @@ class LabelMetricModule(L.LightningModule):
         self.lambda_weight = torch.tensor(lambda_weight)
         self.my_logger = my_logger
         self.weight_manager = weight_manager
+        self.learning_rate = learning_rate
 
     def forward(self, x: torch.Tensor):
         embeddings = self.backbone_model(x)
         return embeddings
 
     def training_step(self, batch, batch_idx):
+        epoch_idx = self.current_epoch
         # anchors, positives, negatives
         x_a, y_a = batch['anc']
         x_p, y_p = batch['pos']
@@ -58,12 +62,24 @@ class LabelMetricModule(L.LightningModule):
             target = y_a,
             weight = w_a
         )
-        loss = self.lambda_weight * triplet_loss + (1 - self.lambda_weight) * classification_loss
-        print(triplet_loss, classification_loss, loss)
+        loss = self.lambda_weight * triplet_loss + \
+               (1 - self.lambda_weight) * classification_loss
+        self.my_logger.info(f'training epoch {epoch_idx} batch {batch_idx} '
+                            f'triplet loss: {triplet_loss} '
+                            f'classification loss: {classification_loss}')
         return loss
 
     def validation_step(self, batch, batch_idx):
-        pass
+        epoch_idx = self.current_epoch
+        x, y = batch
+        logits = self.prediction_head(self(x))
+        loss = F.cross_entropy(input = logits, target = y)
+        self.my_logger.info(f'validation epoch {epoch_idx} batch {batch_idx} '
+                            f'classification loss: {loss}')
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
+        return optimizer
 
 if __name__ == '__main__':
 
@@ -120,8 +136,15 @@ if __name__ == '__main__':
         triplet_loss_fn = triplet_loss_fn,
         lambda_weight = 0.5,
         my_logger = logger,
-        weight_manager = weight_manager
+        weight_manager = weight_manager,
+        learning_rate = 0.001
     )
 
-    for i, batch in enumerate(train_loader):
-        lightning_module.training_step(batch, batch_idx=i)
+    # for i, batch in enumerate(train_loader):
+    #     lightning_module.training_step(batch, batch_idx=i)
+
+    # for i, batch in enumerate(valid_loader):
+    #     lightning_module.validation_step(batch, batch_idx=i)
+
+    trainer = L.Trainer(max_epochs=5)
+    trainer.fit(model = lightning_module, datamodule = dm)
