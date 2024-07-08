@@ -2,6 +2,7 @@ import logging
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchaudio.transforms import MelSpectrogram
 
 class Audio2MelSpec(nn.Module):
@@ -39,10 +40,32 @@ class PlaceHolderModel(nn.Module):
         return x
 
 
+class ConvBlock(nn.Module):
+    def __init__(
+        self, 
+        in_channels, 
+        out_channels = 64, 
+        conv_kernel_size = (3, 3),
+        pool_kernel_size = (2, 2)
+    ):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, conv_kernel_size, padding='same')
+        self.batch_norm = nn.BatchNorm2d(out_channels)
+        self.pool = nn.MaxPool2d(kernel_size=pool_kernel_size)
+    
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.batch_norm(x)
+        x = F.relu(x)
+        x = self.pool(x)
+        return x
+
+
 class ConvModel(nn.Module):
     def __init__(
         self, 
         duration: float, 
+        conv_out_channels: int,
         embedding_size: int, 
         **kwargs
     ):
@@ -50,10 +73,33 @@ class ConvModel(nn.Module):
         self.duration = duration
         self.embedding_size = embedding_size
         self.melspec = Audio2MelSpec(**kwargs)
+        conv_layers = [
+            ConvBlock(in_channels = 1, 
+                out_channels = conv_out_channels),
+            ConvBlock(in_channels = conv_out_channels, 
+                out_channels = conv_out_channels),
+            ConvBlock(in_channels = conv_out_channels, 
+                out_channels = conv_out_channels),
+            ConvBlock(in_channels = conv_out_channels, 
+                out_channels = conv_out_channels)
+        ]
+        self.conv = nn.Sequential(*conv_layers)
+        shape = self._get_shape()
+        self.pool = nn.MaxPool2d(kernel_size=(1, shape[-1]))
+        self.project = nn.Linear(conv_out_channels * shape[-2], embedding_size)
 
-    def _get_spec_shape(self) -> torch.Tensor:
-        _input_like = torch.randn([int(self.duration * self.melspec.sr)])
-        return self.melspec(_input_like).shape
+    def _get_shape(self) -> torch.Tensor:
+        _input_like = torch.randn([1, int(self.duration * self.melspec.sr)])
+        x = self.melspec(_input_like).unsqueeze(1)
+        return self.conv(x).shape
+
+    def forward(self, x):
+        x = self.melspec(x).unsqueeze(1)
+        x = self.conv(x)
+        x = self.pool(x)
+        x = torch.flatten(x, start_dim=1)
+        x = self.project(x)
+        return x
 
 
 class PredictionHead(nn.Module):
@@ -114,9 +160,13 @@ if __name__ == '__main__':
 
     model = ConvModel(
         duration = 1.0,
-        embedding_size = 256,
+        conv_out_channels = 128,
+        embedding_size = 128,
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
     )
-    print(model._get_spec_shape())
+    
+    y = model(x)
+
+    print(f"output shape: {y.shape}")

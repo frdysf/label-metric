@@ -25,6 +25,7 @@ class LabelMetricModule(L.LightningModule):
         self.backbone_model = backbone_model
         self.prediction_head = prediction_head
         self.triplet_loss_fn = triplet_loss_fn
+        assert 0 < lambda_weight < 1
         self.lambda_weight = torch.tensor(lambda_weight)
         self.my_logger = my_logger
         self.weight_manager = weight_manager
@@ -42,9 +43,9 @@ class LabelMetricModule(L.LightningModule):
         x_n, y_n = batch['neg']
         # class weights
         weights = self.weight_manager.get_weights()
-        w_a = weights['anc']
-        w_p = weights['pos']
-        w_n = weights['neg']
+        w_a = weights['anc'].to(self.device)
+        w_p = weights['pos'].to(self.device)
+        w_n = weights['neg'].to(self.device)
         # embeddings
         z_a = self(x_a)
         z_p = self(x_p)
@@ -54,16 +55,15 @@ class LabelMetricModule(L.LightningModule):
             anchor_embs = z_a, 
             positive_embs = z_p, 
             negative_embs = z_n
-        )
+        ) * self.lambda_weight
         # classification loss
         logits_a = self.prediction_head(z_a)
         classification_loss = F.cross_entropy(
             input = logits_a, 
             target = y_a,
             weight = w_a
-        )
-        loss = self.lambda_weight * triplet_loss + \
-               (1 - self.lambda_weight) * classification_loss
+        ) * (1 - self.lambda_weight)
+        loss = triplet_loss + classification_loss
         self.my_logger.info(f'training epoch {epoch_idx} batch {batch_idx} '
                             f'triplet loss: {triplet_loss} '
                             f'classification loss: {classification_loss}')
@@ -112,13 +112,15 @@ if __name__ == '__main__':
     train_loader = dm.train_dataloader()
     valid_loader = dm.val_dataloader()
 
-    from label_metric.models import PlaceHolderModel, PredictionHead
+    from label_metric.models import ConvModel, PredictionHead
 
-    backbone_model = PlaceHolderModel(
+    backbone_model = ConvModel(
+        duration = 1.0,
+        conv_out_channels = 128,
+        embedding_size = 256,
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
-        output_dim = 256
     )
 
     prediction_head = PredictionHead(
@@ -134,7 +136,7 @@ if __name__ == '__main__':
         backbone_model = backbone_model,
         prediction_head = prediction_head,
         triplet_loss_fn = triplet_loss_fn,
-        lambda_weight = 0.5,
+        lambda_weight = 0.95,
         my_logger = logger,
         weight_manager = weight_manager,
         learning_rate = 0.001
