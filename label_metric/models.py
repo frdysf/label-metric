@@ -126,7 +126,7 @@ if __name__ == '__main__':
     from label_metric.data_modules import OrchideaSOLDataModule
     from label_metric.samplers import WeightManager
 
-    weight_manager = WeightManager(logger)
+    weight_manager = WeightManager(logger, active = True)
 
     data_module = OrchideaSOLDataModule(
         dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',

@@ -106,7 +106,7 @@ if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     setup_logger(logger)
 
-    weight_manager = WeightManager(logger)
+    weight_manager = WeightManager(logger, active = True)
 
     dm = OrchideaSOLDataModule(
         dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',

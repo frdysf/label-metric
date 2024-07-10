@@ -13,8 +13,9 @@ from label_metric.utils.tree_utils import (
 
 class WeightManager():
 
-    def __init__(self, logger: logging.Logger):
+    def __init__(self, logger: logging.Logger, active: bool):
         self.logger = logger
+        self.active = active
 
     def update_weights(self, counts: Dict[str, torch.Tensor]):
         weights = {}
@@ -25,6 +26,8 @@ class WeightManager():
         self.logger.debug('class weights have been updated')
 
     def get_weights(self) -> Dict[str, torch.Tensor]:
+        if not self.active:
+            return None
         self.logger.debug('retrieving class weights')
         assert hasattr(self, 'weights'), 'weights have not been set yet'
         return self.weights
@@ -141,7 +144,7 @@ if __name__ == '__main__':
         logger = logger
     )
 
-    weight_manager = WeightManager(logger)
+    weight_manager = WeightManager(logger, active = True)
 
     sampler = SampleTripletsFromTree(
         data = train_set, 
