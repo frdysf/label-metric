@@ -23,22 +23,28 @@ class LabelMetricModule(L.LightningModule):
         my_logger: logging.Logger,
         weight_manager: WeightManager,
         learning_rate: float,
+        classification_accuracy_top_k: int,
         retrieval_precision_top_k: int
     ):
         super().__init__()
         self.backbone_model = backbone_model
         self.prediction_head = prediction_head
         self.triplet_loss_fn = triplet_loss_fn
-        assert 0 < lambda_weight < 1
+        assert 0 <= lambda_weight <= 1
         self.lambda_weight = torch.tensor(lambda_weight)
         self.my_logger = my_logger
         self.weight_manager = weight_manager
         self.learning_rate = learning_rate
+        self.ca_top_k = classification_accuracy_top_k
         self.rp_top_k = retrieval_precision_top_k
         self.accuracy = Accuracy(
             task = 'multiclass', 
+            num_classes = prediction_head.num_classes
+        )
+        self.accuracy_top_k = Accuracy(
+            task = 'multiclass', 
             num_classes = prediction_head.num_classes,
-            top_k = 5
+            top_k = self.ca_top_k
         )
         self.retrieval_precision = RetrievalPrecision(top_k=self.rp_top_k)
 
@@ -48,9 +54,14 @@ class LabelMetricModule(L.LightningModule):
 
     def on_train_epoch_start(self):
         weights = self.weight_manager.get_weights()
-        self.w_a = weights['anc'].to(self.device)
-        self.w_p = weights['pos'].to(self.device)
-        self.w_n = weights['neg'].to(self.device)
+        if weights is None:
+            self.w_a = None
+            self.w_p = None
+            self.w_n = None
+        else:
+            self.w_a = weights['anc'].to(self.device)
+            self.w_p = weights['pos'].to(self.device)
+            self.w_n = weights['neg'].to(self.device)
 
     def training_step(self, batch, batch_idx):
         epoch_idx = self.current_epoch
@@ -71,6 +82,10 @@ class LabelMetricModule(L.LightningModule):
             * (1 - self.lambda_weight)
         # add
         loss = triplet_loss + classification_loss
+        self.log('train_loss/triplet', triplet_loss)
+        self.log('classification_loss/train', classification_loss)
+        self.log('train_loss/classification', classification_loss)
+        self.log('train_loss/total', loss)
         # self.my_logger.info(f'training epoch {epoch_idx} batch {batch_idx} '
         #                     f'triplet loss: {triplet_loss} '
         #                     f'classification loss: {classification_loss}')
@@ -85,22 +100,29 @@ class LabelMetricModule(L.LightningModule):
         x, y = batch
         z = self(x)
         logits = self.prediction_head(z)
-        val_loss = F.cross_entropy(logits, y)
-        # retrieval evaluated on epoch end
+        val_loss = F.cross_entropy(logits, y) * (1 - self.lambda_weight)
+        self.log('classification_loss/val', val_loss)
+        # retrieval metrics will be evaluated on epoch end
         self.val_embeddings.append(z)
         self.val_labels.append(y)
         # update classification accuracy
         self.accuracy.update(logits, y)
+        self.accuracy_top_k.update(logits, y)
         # self.my_logger.info(f'validation epoch {epoch_idx} batch {batch_idx} '
         #                     f'classification loss: {loss}')
 
     def on_validation_epoch_end(self):
         rp = self._compute_rp(self.val_embeddings, self.val_labels)
         adaptive_rp = self._compute_adaptive_rp(self.val_embeddings, self.val_labels)
-        self.my_logger.info(f'val_accuracy: {self.accuracy.compute()}')
-        self.my_logger.info(f'val_rp: {rp}')
-        self.my_logger.info(f'val_adaptive_rp: {adaptive_rp}')
+        self.log('valid_metric/accuracy', self.accuracy.compute())
+        self.log('valid_metric/accuracy_top_k', self.accuracy_top_k.compute())
+        self.log('valid_metric/retrieval_precision', rp)
+        self.log('valid_metric/adaptive_retrieval_precision', adaptive_rp)
+        # self.my_logger.info(f'val_accuracy: {self.accuracy.compute()}')
+        # self.my_logger.info(f'val_rp: {rp}')
+        # self.my_logger.info(f'val_adaptive_rp: {adaptive_rp}')
         self.accuracy.reset()
+        self.accuracy_top_k.reset()
 
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
@@ -174,8 +196,6 @@ if __name__ == '__main__':
     )
 
     dm.setup('fit')
-    train_loader = dm.train_dataloader()
-    valid_loader = dm.val_dataloader()
 
     from label_metric.models import ConvModel, PredictionHead
 
@@ -186,6 +206,7 @@ if __name__ == '__main__':
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
+        power = 1
     )
 
     prediction_head = PredictionHead(
@@ -205,8 +226,21 @@ if __name__ == '__main__':
         my_logger = logger,
         weight_manager = weight_manager,
         learning_rate = 0.001,
+        classification_accuracy_top_k = 5,
         retrieval_precision_top_k = 5
     )
+
+    trainer = L.Trainer(
+        max_epochs = 1000, 
+        gradient_clip_val = 1.,
+        enable_progress_bar = False,
+        deterministic = True
+    )
+    trainer.fit(model = lm, datamodule = dm)
+
+    # dm.setup('fit')
+    # train_loader = dm.train_dataloader()
+    # valid_loader = dm.val_dataloader()
 
     # lm.on_train_epoch_start()
     # for i, batch in enumerate(train_loader):
@@ -216,12 +250,4 @@ if __name__ == '__main__':
     # for i, batch in enumerate(valid_loader):
     #     lm.validation_step(batch, batch_idx=i)
     # lm.on_validation_epoch_end()
-
-    trainer = L.Trainer(
-        max_epochs = 100, 
-        check_val_every_n_epoch = 10,
-        gradient_clip_val = 0.5,
-        enable_progress_bar = False,
-        deterministic = True
-    )
-    trainer.fit(model = lm, datamodule = dm)
+    

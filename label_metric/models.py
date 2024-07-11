@@ -6,15 +6,17 @@ import torch.nn.functional as F
 from torchaudio.transforms import MelSpectrogram
 
 class Audio2MelSpec(nn.Module):
-    def __init__(self, sr: int, n_fft: int, hop_length: int):
+    def __init__(self, sr: int, n_fft: int, hop_length: int, power: float):
         super().__init__()
         self.sr = sr
         self.n_fft = n_fft
         self.hop_length = hop_length
+        self.power = power
         self.melspec = MelSpectrogram(
             sample_rate = sr,
             n_fft = n_fft,
-            hop_length = hop_length
+            hop_length = hop_length,
+            power = power
         )
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.melspec(x)
@@ -150,6 +152,7 @@ if __name__ == '__main__':
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
+        power = 1,
         output_dim = 256
     )
 
@@ -165,6 +168,7 @@ if __name__ == '__main__':
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
+        power = 1
     )
     
     y = model(x)

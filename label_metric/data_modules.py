@@ -115,9 +115,9 @@ if __name__ == '__main__':
         train_ratio = 0.8,
         valid_ratio = 0.1,
         logger = logger,
-        more_level = 2,
+        more_level = 1,
         weight_manager = weight_manager,
-        batch_size = 32, 
+        batch_size = 32,
         num_workers = 2
     )
 

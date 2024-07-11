@@ -2,6 +2,7 @@ from itertools import combinations, permutations
 import random
 from typing import List, Tuple, Iterator, Dict
 import logging
+import textwrap
 
 import torch
 from anytree import Node, LevelOrderGroupIter
@@ -172,3 +173,55 @@ if __name__ == '__main__':
           f"anchor: {batch['anc'][1][0]}, "
           f"positive: {batch['pos'][1][0]}, "
           f"negative: {batch['neg'][1][0]}")
+
+    from label_metric.models import Audio2MelSpec
+
+    melspec = Audio2MelSpec(
+        sr = 44100,
+        n_fft = 2048,
+        hop_length = 512,
+        power = 1
+    )
+
+    x_a, y_a = batch['anc']
+    x_a = melspec(x_a)
+
+    x_p, y_p = batch['pos']
+    x_p = melspec(x_p)
+
+    x_n, y_n = batch['neg']
+    x_n = melspec(x_n)
+
+    ex_spec = x_a[1]
+    
+    import matplotlib.pyplot as plt
+
+    # Define the number of rows and columns
+    nrows = len(x_a)
+    ncols = 3 # a, p, n
+
+    # Create a figure with a grid of subplots
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 4, nrows * 4))
+
+    # Plot each Mel spectrogram in the appropriate subplot
+    for i in range(nrows):
+        for j in range(ncols):
+            ax = axes[i, j]
+            if j == 0:
+                mel_spectrogram, label = x_a[i], y_a[i]
+            elif j == 1:
+                mel_spectrogram, label = x_p[i], y_p[i]
+            elif j == 2:
+                mel_spectrogram, label = x_n[i], y_n[i]
+            mel_spectrogram_np = mel_spectrogram.numpy()
+            title = str(train_set.label_to_node(int(label)))
+            title = '\n'.join(textwrap.wrap(title, 30))
+            ax.imshow(mel_spectrogram_np, aspect='auto', origin='lower', cmap='viridis')
+            ax.set_title(title)
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Frequency')
+            ax.label_outer()  # Only show outer labels to avoid clutter
+
+    # Adjust layout and save the figure
+    plt.tight_layout()
+    plt.savefig('batch_mel_spectrograms.png', dpi=300)

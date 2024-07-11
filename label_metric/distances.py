@@ -58,6 +58,7 @@ if __name__ == '__main__':
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
+        power = 1,
         output_dim = 256
     )
 

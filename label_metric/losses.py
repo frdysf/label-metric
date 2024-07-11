@@ -77,17 +77,18 @@ if __name__ == '__main__':
     print(loss)
 
     a = torch.tensor([[0., 1.]])
-    p = torch.tensor([[0., -1.]])
+    p = torch.tensor([[1., 0.]])
     n = torch.tensor([[0., 1.]])
+    m = 0.5
 
-    loss_fn = TripletLoss(margin=0.1, distance=LpDistance())
+    loss_fn = TripletLoss(margin=m, distance=LpDistance())
     loss = loss_fn(a, p, n)
     print(loss)
 
-    loss_fn = TripletLoss(margin=0.1, distance=CosineSimilarity())
+    loss_fn = TripletLoss(margin=m, distance=CosineSimilarity())
     loss = loss_fn(a, p, n)
     print(loss)
 
-    loss_fn = TripletLoss(margin=0.1, distance=PoincareDistance())
+    loss_fn = TripletLoss(margin=m, distance=PoincareDistance())
     loss = loss_fn(a, p, n)
     print(loss)

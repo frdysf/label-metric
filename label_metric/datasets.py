@@ -154,6 +154,9 @@ class OrchideaSOL(Dataset):
             node.name = f'{node.name} {len(self.node_to_index[node])}'
         self.logger.info(f'Load {self.split} set data\n{self.__str__()}')
 
+    def label_to_node(self, label: int) -> Node:
+        return self.tree.leaves[label]
+
 
 class BasicOrchideaSOL(OrchideaSOL):
 
@@ -242,6 +245,13 @@ if __name__ == '__main__':
         logger = logger
     )
 
+    print('10 data samples from the train set:')
+    train_num = len(train_set)
+    idxs = random.sample(range(train_num), 10)
+    for i in idxs:
+        print('path:', train_set.data[i]['path'])
+        print('node:', train_set.label_to_node(train_set.data[i]['label']))
+
     valid_set = BasicOrchideaSOL(
         dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
         split = 'valid',
@@ -252,6 +262,13 @@ if __name__ == '__main__':
         logger = logger        
     )
 
+    print('10 data samples from the valid set:')
+    val_num = len(valid_set)
+    idxs = random.sample(range(val_num), 10)
+    for i in idxs:
+        print('path:', valid_set.data[i]['path'])
+        print('node:', valid_set.label_to_node(valid_set.data[i]['label']))
+
     test_set = BasicOrchideaSOL(
         dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
         split = 'test',
@@ -261,3 +278,10 @@ if __name__ == '__main__':
         valid_ratio = 0.1,
         logger = logger        
     )
+
+    print('10 data samples from the test set:')
+    test_num = len(test_set)
+    idxs = random.sample(range(test_num), 10)
+    for i in idxs:
+        print('path:', test_set.data[i]['path'])
+        print('node:', test_set.label_to_node(test_set.data[i]['label']))
