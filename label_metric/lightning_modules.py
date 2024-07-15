@@ -66,9 +66,9 @@ class LabelMetricModule(L.LightningModule):
     def training_step(self, batch, batch_idx):
         epoch_idx = self.current_epoch
         # get anchors, positives, negatives
-        x_a, y_a = batch['anc']
-        x_p, y_p = batch['pos']
-        x_n, y_n = batch['neg']
+        x_a, y_a, binary_y_a = batch['anc']
+        x_p, y_p, binary_y_p = batch['pos']
+        x_n, y_n, binary_y_n = batch['neg']
         # embeddings
         z_a = self(x_a)
         z_p = self(x_p)
@@ -97,7 +97,7 @@ class LabelMetricModule(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         # epoch_idx = self.current_epoch
-        x, y = batch
+        x, y, binary_y = batch
         z = self(x)
         logits = self.prediction_head(z)
         val_loss = F.cross_entropy(logits, y) * (1 - self.lambda_weight)
@@ -197,16 +197,54 @@ if __name__ == '__main__':
 
     dm.setup('fit')
 
+    # normalisatiion - giving same results
+    #
+    # from label_metric.datasets import BasicOrchideaSOL
+    # collect_stat_train_set = BasicOrchideaSOL(
+    #     dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+    #     split = 'train',
+    #     min_num_per_leaf = 10,
+    #     duration = 1.0,
+    #     train_ratio = 0.8,
+    #     valid_ratio = 0.1,
+    #     logger = logger
+    # )
+    # from torch.utils.data import DataLoader
+    # collect_stat_train_loader = DataLoader(
+    #     collect_stat_train_set,
+    #     batch_size = 64,
+    #     num_workers = 11,
+    #     shuffle = False,
+    #     drop_last = False
+    # )
+    # from label_metric.models import Audio2LogMelSpec
+    # melspec = Audio2LogMelSpec(
+    #     sr = 44100,
+    #     n_fft = 2048,
+    #     hop_length = 512
+    # )
+    # train_spec_max_val = float('-inf')
+    # train_spec_min_val = float('inf')
+    # for x, y1, y2 in collect_stat_train_loader:
+    #     x = melspec(x)
+    #     batch_max = x.max().item()
+    #     batch_min = x.min().item()
+    #     if batch_max > train_spec_max_val:
+    #         train_spec_max_val = batch_max
+    #     if batch_min < train_spec_min_val:
+    #         train_spec_min_val = batch_min
+
     from label_metric.models import ConvModel, PredictionHead
 
     backbone_model = ConvModel(
         duration = 1.0,
         conv_out_channels = 128,
         embedding_size = 256,
+        train_spec_max_val = None,
+        train_spec_min_val = None,
         sr = 44100,
         n_fft = 2048,
-        hop_length = 512,
-        power = 0.5
+        hop_length = 512
     )
 
     prediction_head = PredictionHead(
@@ -231,7 +269,7 @@ if __name__ == '__main__':
     )
 
     trainer = L.Trainer(
-        max_epochs = 500, 
+        max_epochs = 200, 
         gradient_clip_val = 1.,
         enable_progress_bar = False,
         deterministic = True

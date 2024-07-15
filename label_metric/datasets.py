@@ -257,14 +257,6 @@ if __name__ == '__main__':
         logger = logger
     )
 
-    print('train set example:')
-    data = train_set[(0,1,2)]
-    anchor_audio, anchor_label, anchor_binary_label = data['anc']
-    print(f'anchor:\n'
-          f'audio {anchor_audio}\n'
-          f'label {anchor_label}\n'
-          f'binary label {anchor_binary_label}')
-
     valid_set = BasicOrchideaSOL(
         dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
         split = 'valid',
@@ -274,9 +266,3 @@ if __name__ == '__main__':
         valid_ratio = 0.1,
         logger = logger        
     )
-
-    print('valid set example:')
-    audio, label, binary_label = valid_set[0]
-    print(f'audio {audio}\n'
-          f'label {label}\n'
-          f'binary label {binary_label}')

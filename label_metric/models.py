@@ -1,25 +1,27 @@
 import logging
+from typing import Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchaudio.transforms import MelSpectrogram
+from torchaudio.transforms import MelSpectrogram, AmplitudeToDB
 
-class Audio2MelSpec(nn.Module):
-    def __init__(self, sr: int, n_fft: int, hop_length: int, power: float):
+class Audio2LogMelSpec(nn.Module):
+    def __init__(self, sr: int, n_fft: int, hop_length: int):
         super().__init__()
         self.sr = sr
         self.n_fft = n_fft
         self.hop_length = hop_length
-        self.power = power
         self.melspec = MelSpectrogram(
             sample_rate = sr,
             n_fft = n_fft,
-            hop_length = hop_length,
-            power = power
+            hop_length = hop_length
         )
+        self.amp_to_db = AmplitudeToDB()
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.melspec(x)
+        x = self.amp_to_db(x)
         return x
 
 
@@ -30,7 +32,7 @@ class PlaceHolderModel(nn.Module):
         super().__init__()
 
         self.output_dim = output_dim
-        self.melspec = Audio2MelSpec(**kwargs)
+        self.melspec = Audio2LogMelSpec(**kwargs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
 
@@ -54,7 +56,7 @@ class ConvBlock(nn.Module):
         self.conv = nn.Conv2d(in_channels, out_channels, conv_kernel_size, padding='same')
         self.batch_norm = nn.BatchNorm2d(out_channels)
         self.pool = nn.MaxPool2d(kernel_size=pool_kernel_size)
-    
+
     def forward(self, x):
         x = self.conv(x)
         x = self.batch_norm(x)
@@ -69,12 +71,16 @@ class ConvModel(nn.Module):
         duration: float, 
         conv_out_channels: int,
         embedding_size: int, 
+        train_spec_max_val: Optional[torch.Tensor] = None, 
+        train_spec_min_val: Optional[torch.Tensor] = None, 
         **kwargs
     ):
         super().__init__()
         self.duration = duration
         self.embedding_size = embedding_size
-        self.melspec = Audio2MelSpec(**kwargs)
+        self.train_spec_max_val = train_spec_max_val
+        self.train_spec_min_val = train_spec_min_val
+        self.melspec = Audio2LogMelSpec(**kwargs)
         conv_layers = [
             ConvBlock(in_channels = 1, 
                 out_channels = conv_out_channels),
@@ -97,6 +103,8 @@ class ConvModel(nn.Module):
 
     def forward(self, x):
         x = self.melspec(x).unsqueeze(1)
+        if self.train_spec_max_val is not None and self.train_spec_min_val is not None:
+            x = 2 * (x - self.train_spec_min_val) / (self.train_spec_max_val - self.train_spec_min_val) - 1
         x = self.conv(x)
         x = self.pool(x)
         x = torch.flatten(x, start_dim=1)
@@ -110,6 +118,7 @@ class PredictionHead(nn.Module):
         self.embedding_size = embedding_size
         self.num_classes = num_classes
         self.linear = nn.Linear(embedding_size, num_classes)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(x)
     
@@ -152,7 +161,6 @@ if __name__ == '__main__':
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
-        power = 1,
         output_dim = 256
     )
 
@@ -168,7 +176,6 @@ if __name__ == '__main__':
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
-        power = 1
     )
     
     y = model(x)

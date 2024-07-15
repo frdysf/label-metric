@@ -168,31 +168,29 @@ if __name__ == '__main__':
           f"{weight_manager.get_weights()['anc']}")
     print("anchors in the first minibatch: "
           f"audio shape {batch['anc'][0].shape}, "
-          f"label shape {batch['anc'][1].shape}")
+          f"label shape {batch['anc'][1].shape}, "
+          f"binary label shape {batch['anc'][2].shape}")
     print("labels of the first triplet in the minibatch: "
           f"anchor: {batch['anc'][1][0]}, "
           f"positive: {batch['pos'][1][0]}, "
           f"negative: {batch['neg'][1][0]}")
 
-    from label_metric.models import Audio2MelSpec
+    from label_metric.models import Audio2LogMelSpec
 
-    melspec = Audio2MelSpec(
+    melspec = Audio2LogMelSpec(
         sr = 44100,
         n_fft = 2048,
-        hop_length = 512,
-        power = 0.5
+        hop_length = 512
     )
 
-    x_a, y_a = batch['anc']
+    x_a, y_a, binary_y_a = batch['anc']
     x_a = melspec(x_a)
 
-    x_p, y_p = batch['pos']
+    x_p, y_p, binary_y_p = batch['pos']
     x_p = melspec(x_p)
 
-    x_n, y_n = batch['neg']
+    x_n, y_n, binary_y_n = batch['neg']
     x_n = melspec(x_n)
-
-    ex_spec = x_a[1]
     
     import matplotlib.pyplot as plt
 
