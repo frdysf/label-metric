@@ -47,15 +47,16 @@ class OrchideaSOL(Dataset):
     def __str__(self) -> str:
         return tree_to_string(self.tree)
 
-    def prepare_item(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def prepare_item(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         audio_path = self.data[idx]['path']
         label = self.data[idx]['label']
+        binary_label = self.data[idx]['binary_label']
         audio, sr = torchaudio.load(audio_path)
         assert audio.shape[0] == 1 # one channel
         assert sr == 44100
         audio = standardize_duration(audio, sr=sr, dur=self.duration)
         audio = torch.squeeze(audio, 0)
-        return audio, torch.tensor(label)
+        return audio, torch.tensor(label), torch.tensor(binary_label)
     
     def load_tree(self) -> Tuple[Node, Dict[Node, str]]:
 
@@ -101,6 +102,10 @@ class OrchideaSOL(Dataset):
 
         dataset = []
         tree, leaf_node_to_dir = self.load_tree()
+        
+        all_nodes = list(LevelOrderIter(tree))
+        assert all_nodes[0].is_root
+        all_nodes_except_root  = all_nodes[1:]
 
         for leaf in tree.leaves: # a leaf is a class
             audio_dir = leaf_node_to_dir[leaf]
@@ -116,20 +121,27 @@ class OrchideaSOL(Dataset):
                 audio_files = audio_files[train_size:train_size + valid_size]
             elif self.split == 'test':
                 audio_files = audio_files[train_size + valid_size:]
+
+            ancestors = list(leaf.ancestors)
+            assert ancestors[0].is_root
+            ancestors_except_root = ancestors[1:]
+            annotated_nodes = ancestors_except_root + [leaf]
             
             for f in audio_files:
                 assert f.endswith('.wav')
                 fn_sep = f.split('-')
                 data = {
-                    'path':         os.path.join(audio_dir, f),
-                    'inst_fam':     leaf.parent.parent.parent.name,
-                    'inst':         leaf.parent.parent.name,
-                    'mute':         leaf.parent.name,
-                    'p_tech':       leaf.name,
-                    'pitch':        fn_sep[2],
-                    'dynamics':     fn_sep[3],
-                    'node':         leaf,
-                    'label':        tree.leaves.index(leaf),
+                    'path':             os.path.join(audio_dir, f),
+                    'inst_fam':         leaf.parent.parent.parent.name,
+                    'inst':             leaf.parent.parent.name,
+                    'mute':             leaf.parent.name,
+                    'p_tech':           leaf.name,
+                    'pitch':            fn_sep[2],
+                    'dynamics':         fn_sep[3],
+                    'node':             leaf,
+                    'label':            tree.leaves.index(leaf),
+                    'binary_label':     [1.0 if node in annotated_nodes else 0.0 \
+                                        for node in all_nodes_except_root]
                 }
                 dataset.append(data)
 
@@ -245,12 +257,13 @@ if __name__ == '__main__':
         logger = logger
     )
 
-    print('10 data samples from the train set:')
-    train_num = len(train_set)
-    idxs = random.sample(range(train_num), 10)
-    for i in idxs:
-        print('path:', train_set.data[i]['path'])
-        print('node:', train_set.label_to_node(train_set.data[i]['label']))
+    print('train set example:')
+    data = train_set[(0,1,2)]
+    anchor_audio, anchor_label, anchor_binary_label = data['anc']
+    print(f'anchor:\n'
+          f'audio {anchor_audio}\n'
+          f'label {anchor_label}\n'
+          f'binary label {anchor_binary_label}')
 
     valid_set = BasicOrchideaSOL(
         dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
@@ -262,26 +275,8 @@ if __name__ == '__main__':
         logger = logger        
     )
 
-    print('10 data samples from the valid set:')
-    val_num = len(valid_set)
-    idxs = random.sample(range(val_num), 10)
-    for i in idxs:
-        print('path:', valid_set.data[i]['path'])
-        print('node:', valid_set.label_to_node(valid_set.data[i]['label']))
-
-    test_set = BasicOrchideaSOL(
-        dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
-        split = 'test',
-        min_num_per_leaf = 10,
-        duration = 1.0,
-        train_ratio = 0.8,
-        valid_ratio = 0.1,
-        logger = logger        
-    )
-
-    print('10 data samples from the test set:')
-    test_num = len(test_set)
-    idxs = random.sample(range(test_num), 10)
-    for i in idxs:
-        print('path:', test_set.data[i]['path'])
-        print('node:', test_set.label_to_node(test_set.data[i]['label']))
+    print('valid set example:')
+    audio, label, binary_label = valid_set[0]
+    print(f'audio {audio}\n'
+          f'label {label}\n'
+          f'binary label {binary_label}')

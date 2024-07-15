@@ -206,7 +206,7 @@ if __name__ == '__main__':
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
-        power = 1
+        power = 0.5
     )
 
     prediction_head = PredictionHead(
@@ -231,7 +231,7 @@ if __name__ == '__main__':
     )
 
     trainer = L.Trainer(
-        max_epochs = 1000, 
+        max_epochs = 500, 
         gradient_clip_val = 1.,
         enable_progress_bar = False,
         deterministic = True

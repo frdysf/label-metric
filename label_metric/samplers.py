@@ -180,7 +180,7 @@ if __name__ == '__main__':
         sr = 44100,
         n_fft = 2048,
         hop_length = 512,
-        power = 1
+        power = 0.5
     )
 
     x_a, y_a = batch['anc']
