@@ -157,17 +157,11 @@ if __name__ == '__main__':
     
     batch = next(iter(train_loader))
 
-    model = PlaceHolderModel(
-        sr = 44100,
-        n_fft = 2048,
-        hop_length = 512,
-        output_dim = 256
-    )
-
     x = batch['anc'][0]
-    y = model(x)
+    y = batch['anc'][1]
+    binary_y = batch['anc'][2]
 
-    print(f"input shape: {x.shape}, output shape: {y.shape}")
+    print(f"input shape: {x.shape}, label shape: {y.shape}, binary label shape: {binary_y.shape}")
 
     model = ConvModel(
         duration = 1.0,
@@ -178,6 +172,6 @@ if __name__ == '__main__':
         hop_length = 512,
     )
     
-    y = model(x)
+    x = model(x)
 
-    print(f"output shape: {y.shape}")
+    print(f"output shape: {x.shape}")

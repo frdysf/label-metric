@@ -169,6 +169,12 @@ class OrchideaSOL(Dataset):
     def label_to_node(self, label: int) -> Node:
         return self.tree.leaves[label]
 
+    def get_leaf_num(self) -> int:
+        return len(self.tree.leaves)
+
+    def get_node_num(self) -> int:
+        return len(list(LevelOrderIter(self.tree)))
+
 
 class BasicOrchideaSOL(OrchideaSOL):
 

@@ -5,7 +5,7 @@ import logging
 import textwrap
 
 import torch
-from anytree import Node, LevelOrderGroupIter
+from anytree import Node, LevelOrderGroupIter, LevelOrderIter
 from torch.utils.data import Dataset, Sampler
 
 from label_metric.utils.tree_utils import (
@@ -18,20 +18,35 @@ class WeightManager():
         self.logger = logger
         self.active = active
 
-    def update_weights(self, counts: Dict[str, torch.Tensor]):
-        weights = {}
-        for k, cnt in counts.items():
-            w = 1 / cnt
-            weights[k] = w / w.sum()
-        self.weights = weights
-        self.logger.debug('class weights have been updated')
+    def update_weights(self, leaf_counts: torch.Tensor, all_nodes_except_root_counts: torch.Tensor):
+        # weights = {}
+        # for k, cnt in counts.items():
+        #     w = 1 / cnt
+        #     weights[k] = w / w.sum()
+        # self.weights = weights
+        # self.logger.debug('class weights have been updated')
+        w = 1 / leaf_counts
+        self.weight = w / w.sum()
+        total_cnt = torch.ones_like(all_nodes_except_root_counts) * leaf_counts.sum()
+        self.pos_weight = (total_cnt - all_nodes_except_root_counts) / all_nodes_except_root_counts
 
-    def get_weights(self) -> Dict[str, torch.Tensor]:
+    def get_weight(self) -> torch.Tensor:
         if not self.active:
             return None
-        self.logger.debug('retrieving class weights')
-        assert hasattr(self, 'weights'), 'weights have not been set yet'
-        return self.weights
+        self.logger.debug('getting weight from weight manager')
+        assert hasattr(self, 'weight'), 'weight have not been set yet'
+        return self.weight
+
+    def get_pos_weight(self) -> torch.Tensor:
+        if not self.active:
+            return None
+        self.logger.debug('getting pos_weight from weight manager')
+        assert hasattr(self, 'pos_weight'), 'pos_weight have not been set yet'
+        return self.pos_weight
+
+    def clear_weights(self):
+        self.weight = None
+        self.pos_weight = None
 
 
 class SampleTripletsFromTree(Sampler):
@@ -62,20 +77,18 @@ class SampleTripletsFromTree(Sampler):
 
     def sample(self) -> List[Tuple[int, int, int]]:
         triplets = []
-        num_classes = len(self.data.tree.leaves)
-        self.counter = {
-            'anc': torch.zeros(num_classes),
-            'pos': torch.zeros(num_classes),
-            'neg': torch.zeros(num_classes)
-        }
+        num_leaf = len(self.data.tree.leaves)
+        num_all_nodes_except_root = len(list(LevelOrderIter(self.data.tree))) - 1
+        self.leaf_counter = torch.zeros(num_leaf)
+        self.all_nodes_except_root_counter = torch.zeros(num_all_nodes_except_root)
         for nodes in iter_parent_nodes(self.data.tree):
             for parent_node in nodes:
                 self.logger.debug(f'visiting {parent_node}')
                 self.logger.debug(tree_to_string(parent_node))
                 triplets += self.sample_subtree(parent_node)
-        self.weight_manager.update_weights(self.counter)
+        self.weight_manager.update_weights(self.leaf_counter, self.all_nodes_except_root_counter)
         return triplets
-                
+
     def sample_subtree(self, root: Node) -> List[Tuple[int, int, int]]:
         """
         sample  pos and neg from root.children
@@ -100,7 +113,9 @@ class SampleTripletsFromTree(Sampler):
                 idx_a, idx_p = random.sample(self.data.node_to_index[nodes[0]], 2)
                 idx_n = random.choice(self.data.node_to_index[neg])
                 triplets.append((idx_a, idx_p, idx_n))
-                self._count_classes(idx_a, idx_p, idx_n)
+                self._count(idx_a)
+                self._count(idx_p)
+                self._count(idx_n)
             else:
                 for node_a, node_p in combinations(nodes, 2):
                     self.logger.debug(
@@ -111,13 +126,14 @@ class SampleTripletsFromTree(Sampler):
                     idx_p = random.choice(self.data.node_to_index[node_p])
                     idx_n = random.choice(self.data.node_to_index[neg])
                     triplets.append((idx_a, idx_p, idx_n))
-                    self._count_classes(idx_a, idx_p, idx_n)
+                    self._count(idx_a)
+                    self._count(idx_p)
+                    self._count(idx_n)
         return triplets
 
-    def _count_classes(self, idx_a, idx_p, idx_n):
-        self.counter['anc'][self.data.data[idx_a]['label']] += 1
-        self.counter['pos'][self.data.data[idx_p]['label']] += 1
-        self.counter['neg'][self.data.data[idx_n]['label']] += 1
+    def _count(self, idx):
+        self.leaf_counter[self.data.data[idx]['label']] += 1
+        self.all_nodes_except_root_counter += torch.tensor(self.data.data[idx]['binary_label'])
 
 
 if __name__ == '__main__':
@@ -164,8 +180,10 @@ if __name__ == '__main__':
     
     batch = next(iter(train_loader))
 
-    print("class weights of anchors in the first epoch:\n"
-          f"{weight_manager.get_weights()['anc']}")
+    print("weight of the first epoch:\n"
+          f"{weight_manager.get_weight()}")
+    print("pos_weight of the first epoch:\n"
+          f"{weight_manager.get_pos_weight()}")
     print("anchors in the first minibatch: "
           f"audio shape {batch['anc'][0].shape}, "
           f"label shape {batch['anc'][1].shape}, "
@@ -174,6 +192,8 @@ if __name__ == '__main__':
           f"anchor: {batch['anc'][1][0]}, "
           f"positive: {batch['pos'][1][0]}, "
           f"negative: {batch['neg'][1][0]}")
+
+    """ Plotting the first batch
 
     from label_metric.models import Audio2LogMelSpec
 
@@ -223,3 +243,5 @@ if __name__ == '__main__':
     # Adjust layout and save the figure
     plt.tight_layout()
     plt.savefig('batch_mel_spectrograms.png', dpi=300)
+
+    """

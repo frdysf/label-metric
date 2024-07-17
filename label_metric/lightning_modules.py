@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -17,9 +18,11 @@ class LabelMetricModule(L.LightningModule):
     def __init__(
         self,
         backbone_model: nn.Module,
-        prediction_head: nn.Module,
-        triplet_loss_fn: TripletLoss,
-        lambda_weight: float,
+        prediction_head_leaf: Optional[nn.Module],
+        prediction_head_all_nodes_except_root: Optional[nn.Module],
+        triplet_loss: TripletLoss,
+        alpha: float,
+        beta: float,
         my_logger: logging.Logger,
         weight_manager: WeightManager,
         learning_rate: float,
@@ -27,44 +30,54 @@ class LabelMetricModule(L.LightningModule):
         retrieval_precision_top_k: int
     ):
         super().__init__()
+        
+        # models
         self.backbone_model = backbone_model
-        self.prediction_head = prediction_head
-        self.triplet_loss_fn = triplet_loss_fn
-        assert 0 <= lambda_weight <= 1
-        self.lambda_weight = torch.tensor(lambda_weight)
-        self.my_logger = my_logger
+        self.prediction_head_leaf = prediction_head_leaf
+        self.prediction_head_all_nodes_except_root = prediction_head_all_nodes_except_root
+        
+        # losses
+        self.cross_entropy_loss = nn.CrossEntropyLoss()
+        self.binary_cross_entropy_loss = nn.BCEWithLogitsLoss()
+        self.triplet_loss = triplet_loss
+        
+        # loss weights
+        assert alpha >= 0 and beta >= 0
+        self.alpha = torch.tensor(alpha)
+        self.beta = torch.tensor(beta)
+        
+        # class weight manager
         self.weight_manager = weight_manager
+        
+        # optimization
         self.learning_rate = learning_rate
+        
+        # evaluation
         self.ca_top_k = classification_accuracy_top_k
         self.rp_top_k = retrieval_precision_top_k
         self.accuracy = Accuracy(
             task = 'multiclass', 
-            num_classes = prediction_head.num_classes
+            num_classes = prediction_head_leaf.num_classes
         )
         self.accuracy_top_k = Accuracy(
             task = 'multiclass', 
-            num_classes = prediction_head.num_classes,
+            num_classes = prediction_head_leaf.num_classes,
             top_k = self.ca_top_k
         )
         self.retrieval_precision = RetrievalPrecision(top_k=self.rp_top_k)
+        
+        # custom logger
+        self.my_logger = my_logger
 
-    def forward(self, x: torch.Tensor):
-        embeddings = self.backbone_model(x)
-        return embeddings
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        embs = self.backbone_model(x)
+        return embs
 
     def on_train_epoch_start(self):
-        weights = self.weight_manager.get_weights()
-        if weights is None:
-            self.w_a = None
-            self.w_p = None
-            self.w_n = None
-        else:
-            self.w_a = weights['anc'].to(self.device)
-            self.w_p = weights['pos'].to(self.device)
-            self.w_n = weights['neg'].to(self.device)
+        self.cross_entropy_loss.weight = self.weight_manager.get_weight().to(self.device)
+        self.binary_cross_entropy_loss.pos_weight = self.weight_manager.get_pos_weight().to(self.device)
 
     def training_step(self, batch, batch_idx):
-        epoch_idx = self.current_epoch
         # get anchors, positives, negatives
         x_a, y_a, binary_y_a = batch['anc']
         x_p, y_p, binary_y_p = batch['pos']
@@ -74,42 +87,58 @@ class LabelMetricModule(L.LightningModule):
         z_p = self(x_p)
         z_n = self(x_n)
         # triplet loss
-        triplet_loss = self.triplet_loss_fn(z_a, z_p, z_n) * self.lambda_weight
-        # classification loss
-        logits_a = self.prediction_head(z_a)
-        assert hasattr(self, 'w_a'), 'anchor class weights have not been set yet'
-        classification_loss = F.cross_entropy(logits_a, y_a, self.w_a) \
-            * (1 - self.lambda_weight)
+        triplet_loss = self.triplet_loss(z_a, z_p, z_n)
+        # softmax on leaves
+        logits = torch.cat([
+            self.prediction_head_leaf(z_a),
+            self.prediction_head_leaf(z_p),
+            self.prediction_head_leaf(z_n)
+        ], dim=0)
+        target = torch.cat([y_a, y_p, y_n], dim=0)
+        softmax_on_leaf = self.cross_entropy_loss(logits, target) * self.alpha
+        # binary on all nodes except root
+        binary_logits = torch.cat([
+            self.prediction_head_all_nodes_except_root(z_a),
+            self.prediction_head_all_nodes_except_root(z_p),
+            self.prediction_head_all_nodes_except_root(z_n)
+        ], dim=0)
+        binary_target = torch.cat([binary_y_a, binary_y_p, binary_y_n], dim=0)
+        binary_on_all_nodes_except_root = self.binary_cross_entropy_loss(
+                                            binary_logits, binary_target) * self.beta
         # add
-        loss = triplet_loss + classification_loss
+        loss = triplet_loss + softmax_on_leaf + binary_on_all_nodes_except_root
+        # log
         self.log('train_loss/triplet', triplet_loss)
-        self.log('classification_loss/train', classification_loss)
-        self.log('train_loss/classification', classification_loss)
+        self.log('train_loss/softmax_on_leaf', softmax_on_leaf)
+        self.log('train_loss/binary_on_all_nodes_except_root', binary_on_all_nodes_except_root)
         self.log('train_loss/total', loss)
-        # self.my_logger.info(f'training epoch {epoch_idx} batch {batch_idx} '
-        #                     f'triplet loss: {triplet_loss} '
-        #                     f'classification loss: {classification_loss}')
         return loss
 
     def on_validation_epoch_start(self):
+        self.cross_entropy_loss.weight = None
+        self.binary_cross_entropy_loss.pos_weight = None
         self.val_embeddings = []
         self.val_labels = []
 
     def validation_step(self, batch, batch_idx):
-        # epoch_idx = self.current_epoch
         x, y, binary_y = batch
         z = self(x)
-        logits = self.prediction_head(z)
-        val_loss = F.cross_entropy(logits, y) * (1 - self.lambda_weight)
-        self.log('classification_loss/val', val_loss)
+        # softmax on leaves
+        logits = self.prediction_head_leaf(z)
+        val_softmax_on_leaf = self.cross_entropy_loss(logits, y)
+        self.log('valid_loss/softmax_on_leaf', val_softmax_on_leaf)
+        # binary on all nodes except root
+        binary_logits = self.prediction_head_all_nodes_except_root(z)
+        val_binary_on_all_nodes_except_root = self.binary_cross_entropy_loss(
+                                              binary_logits, binary_y)
+        self.log('valid_loss/binary_on_all_nodes_except_root', 
+                 val_binary_on_all_nodes_except_root)
         # retrieval metrics will be evaluated on epoch end
         self.val_embeddings.append(z)
         self.val_labels.append(y)
         # update classification accuracy
         self.accuracy.update(logits, y)
         self.accuracy_top_k.update(logits, y)
-        # self.my_logger.info(f'validation epoch {epoch_idx} batch {batch_idx} '
-        #                     f'classification loss: {loss}')
 
     def on_validation_epoch_end(self):
         rp = self._compute_rp(self.val_embeddings, self.val_labels)
@@ -118,9 +147,6 @@ class LabelMetricModule(L.LightningModule):
         self.log('valid_metric/accuracy_top_k', self.accuracy_top_k.compute())
         self.log('valid_metric/retrieval_precision', rp)
         self.log('valid_metric/adaptive_retrieval_precision', adaptive_rp)
-        # self.my_logger.info(f'val_accuracy: {self.accuracy.compute()}')
-        # self.my_logger.info(f'val_rp: {rp}')
-        # self.my_logger.info(f'val_adaptive_rp: {adaptive_rp}')
         self.accuracy.reset()
         self.accuracy_top_k.reset()
 
@@ -135,8 +161,8 @@ class LabelMetricModule(L.LightningModule):
     ) -> torch.Tensor:
         embs = torch.cat(embs)
         labels = torch.cat(labels)
-        sim_mtx = self.triplet_loss_fn.distance.compute_mat(embs, embs) * \
-                torch.tensor(1. if self.triplet_loss_fn.distance.is_inverted else -1.)
+        sim_mtx = self.triplet_loss.distance.compute_mat(embs, embs) * \
+                torch.tensor(1. if self.triplet_loss.distance.is_inverted else -1.)
         preds = torch.cat(
             [torch.cat((row[:i],row[i+1:])) for i, row in enumerate(sim_mtx)]
         )
@@ -155,8 +181,8 @@ class LabelMetricModule(L.LightningModule):
     ) -> torch.Tensor:
         embs = torch.cat(embs)
         labels = torch.cat(labels)
-        sim_mtx = self.triplet_loss_fn.distance.compute_mat(embs, embs) * \
-                torch.tensor(1. if self.triplet_loss_fn.distance.is_inverted else -1.)
+        sim_mtx = self.triplet_loss.distance.compute_mat(embs, embs) * \
+                torch.tensor(1. if self.triplet_loss.distance.is_inverted else -1.)
         label_mtx = labels[:, None] == labels[None, :]
         r_p = []
         for i in range(len(sim_mtx)):
@@ -167,6 +193,7 @@ class LabelMetricModule(L.LightningModule):
             if top_k > 0:
                 r_p.append(retrieval_precision(preds, target, top_k=top_k))
         return torch.stack(r_p).mean()
+
 
 if __name__ == '__main__':
 
@@ -197,7 +224,7 @@ if __name__ == '__main__':
 
     dm.setup('fit')
 
-    # normalisatiion - giving same results
+    # normalisatiion - todo: try this at the end
     #
     # from label_metric.datasets import BasicOrchideaSOL
     # collect_stat_train_set = BasicOrchideaSOL(
@@ -247,20 +274,27 @@ if __name__ == '__main__':
         hop_length = 512
     )
 
-    prediction_head = PredictionHead(
+    prediction_head_leaf = PredictionHead(
         embedding_size = 256,
-        num_classes = len(dm.train_set.tree.leaves)
+        num_classes = dm.train_set.get_leaf_num()
+    )
+
+    prediction_head_all_nodes_except_root = PredictionHead(
+        embedding_size = 256,
+        num_classes = dm.train_set.get_node_num() - 1
     )
 
     from pytorch_metric_learning.distances import CosineSimilarity
 
-    triplet_loss_fn = TripletLoss(margin=0.1, distance=CosineSimilarity())
+    triplet_loss = TripletLoss(margin=0.3, distance=CosineSimilarity())
 
     lm = LabelMetricModule(
         backbone_model = backbone_model,
-        prediction_head = prediction_head,
-        triplet_loss_fn = triplet_loss_fn,
-        lambda_weight = 0.95,
+        prediction_head_leaf = prediction_head_leaf,
+        prediction_head_all_nodes_except_root = prediction_head_all_nodes_except_root,
+        triplet_loss = triplet_loss,
+        alpha = 1.0,
+        beta = 1.0,
         my_logger = logger,
         weight_manager = weight_manager,
         learning_rate = 0.001,
@@ -269,7 +303,7 @@ if __name__ == '__main__':
     )
 
     trainer = L.Trainer(
-        max_epochs = 200, 
+        max_epochs = 500, 
         gradient_clip_val = 1.,
         enable_progress_bar = False,
         deterministic = True
