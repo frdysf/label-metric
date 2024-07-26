@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Union
 import logging
 import random
 
@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 from anytree import Node, find_by_attr, LevelOrderIter
 import torchaudio
 
-from label_metric.utils.tree_utils import tree_to_string, iter_parent_nodes
+from label_metric.utils.tree_utils import tree_to_string, iter_parent_nodes, NodeAffinity
 from label_metric.utils.audio_utils import standardize_duration
 
 class OrchideaSOL(Dataset):
@@ -35,6 +35,7 @@ class OrchideaSOL(Dataset):
         self.logger = logger
         
         self.data, self.tree = self.load_data()
+        self.node_affinity = NodeAffinity(self.tree)
         self.node_to_index = self.prepare_node_to_index_mapping()
         self.update_node_name_with_num()
 
@@ -174,6 +175,24 @@ class OrchideaSOL(Dataset):
 
     def get_node_num(self) -> int:
         return len(list(LevelOrderIter(self.tree)))
+
+    def get_node_affinity_from_label(self, 
+        label1: int, 
+        label2: int
+    ) -> Dict[str, Dict[str, Union[int, float]]]:
+        node1 = self.label_to_node(label1)
+        node2 = self.label_to_node(label2)
+        affinity = {
+            'positive': {
+                'sum': self.node_affinity(node1, node2, 'positive', 'sum')
+                'max': self.node_affinity(node1, node2, 'positive', 'max')
+            }
+            'negative': {
+                'sum': self.node_affinity(node1, node2, 'negative', 'sum')
+                'max': self.node_affinity(node1, node2, 'negative', 'max')
+            }
+        }
+        return affinity
 
 
 class BasicOrchideaSOL(OrchideaSOL):

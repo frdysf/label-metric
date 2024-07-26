@@ -1,4 +1,4 @@
-from typing import Set, Tuple, List
+from typing import Set, Tuple, List, Union
 
 from anytree import Node, RenderTree, LevelOrderGroupIter
 from anytree.walker import Walker
@@ -48,22 +48,30 @@ def node_distance(node1: Node, node2: Node, dist_type: str = 'sum') -> int:
 
 
 class NodeAffinity():
-    def __init__(self, node: Node):
+    def __init__(self, any_node: Node):
+        self.any_node = any_node
         self.tree_height = node.root.height
         self.tree_diameter = self._get_diameter(node)
     
     def get_dist(self, node1: Node, node2: Node, dist_type: str) -> int:
+        assert node1.root is self.any_node.root
         return node_distance(node1, node2, dist_type)
 
-    def get_pos_rel(self, node1: Node, node2: Node, dist_type: str) -> float:
+    def get_rel(
+            self, 
+            node1: Node, 
+            node2: Node, 
+            rel_type: str, 
+            dist_type: str
+        ) -> Union[int, float]:
+        assert rel_type in ['positive', 'negative']
         dist = self.get_dist(node1, node2, dist_type)
+        if rel_type == 'negative':
+            return -dist
         if dist_type == 'max':
             return 1 - dist / self.tree_height
         elif dist_type == 'sum':
             return 1 - dist / self.tree_diameter
-
-    def get_neg_rel(self, node1: Node, node2: Node, dist_type: str) -> int:
-        return -self.get_dist(node1, node2, dist_type)
 
     def _search(self, node: Node) -> List[Node]:
         c_list = list(node.children)
@@ -145,10 +153,10 @@ if __name__ == '__main__':
     node_affinity = NodeAffinity(root)
     print('sum dist between e11 and c:', node_affinity.get_dist(e11, c, 'sum'))
     print('max dist between e11 and c:', node_affinity.get_dist(e11, c, 'max'))
-    print('neg rel (sum) between e11 and c:', node_affinity.get_neg_rel(e11, c, 'sum'))
-    print('neg rel (max) between e11 and c:', node_affinity.get_neg_rel(e11, c, 'max'))
-    print('pos rel (sum) between e11 and c:', node_affinity.get_pos_rel(e11, c, 'sum'))
-    print('pos rel (max) between e11 and c:', node_affinity.get_pos_rel(e11, c, 'max'))
+    print('neg rel (sum) between e11 and c:', node_affinity.get_rel(e11, c, 'negative', 'sum'))
+    print('neg rel (max) between e11 and c:', node_affinity.get_rel(e11, c, 'negative', 'max'))
+    print('pos rel (sum) between e11 and c:', node_affinity.get_rel(e11, c, 'positive', 'sum'))
+    print('pos rel (max) between e11 and c:', node_affinity.get_rel(e11, c, 'positive', 'max'))
 
     print('Iterate over all parent nodes:')
     
