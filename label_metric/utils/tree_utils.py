@@ -1,3 +1,5 @@
+from typing import Set, Tuple, List
+
 from anytree import Node, RenderTree, LevelOrderGroupIter
 from anytree.walker import Walker
 from typing import Optional, Tuple, List
@@ -15,9 +17,7 @@ def tree_to_string(root: Node) -> str:
     return "\n".join(lines)
 
 
-def node_distance(node1: Node, 
-                  node2: Node, 
-                  type: str = 'sum') -> int:
+def node_distance(node1: Node, node2: Node, dist_type: str = 'sum') -> int:
     """
     Calculate the distance between two nodes in a tree.
     
@@ -27,7 +27,7 @@ def node_distance(node1: Node,
         The first node.
     node2 : Node
         The second node.
-    type : str
+    dist_type : str
         The type of distance to calculate. Either 'sum' or 'max'.
         'sum' calculates the sum of the distances to the lowest common ancestor.
         'max' calculates the maximum distance to the lowest common ancestor.
@@ -37,14 +37,58 @@ def node_distance(node1: Node,
     distance : int
         The distance between the two nodes.
     """
+    assert node1.root is node2.root
+    assert dist_type in ['sum', 'max']
     w = Walker()
     upwards, _, downwards = w.walk(node1, node2)
-    if type == 'sum':
+    if dist_type == 'sum':
         return len(upwards) + len(downwards)
-    elif type == 'max':
+    elif dist_type == 'max':
         return max(len(upwards), len(downwards))
-    else:
-        raise ValueError("type must be either 'sum' or 'max'.")
+
+
+class NodeAffinity():
+    def __init__(self, node: Node):
+        self.tree_height = node.root.height
+        self.tree_diameter = self._get_diameter(node)
+    
+    def get_dist(self, node1: Node, node2: Node, dist_type: str) -> int:
+        return node_distance(node1, node2, dist_type)
+
+    def get_pos_rel(self, node1: Node, node2: Node, dist_type: str) -> float:
+        dist = self.get_dist(node1, node2, dist_type)
+        if dist_type == 'max':
+            return 1 - dist / self.tree_height
+        elif dist_type == 'sum':
+            return 1 - dist / self.tree_diameter
+
+    def get_neg_rel(self, node1: Node, node2: Node, dist_type: str) -> int:
+        return -self.get_dist(node1, node2, dist_type)
+
+    def _search(self, node: Node) -> List[Node]:
+        c_list = list(node.children)
+        p_list = [node.parent] if node.parent else []
+        return c_list + p_list
+
+    def _dfs(self, node: Node, dist: int, visited: Set[Node]) -> Tuple[Node, int]:
+        farthest_node = node
+        max_dist = dist
+        visited.add(node)
+        search_list = self._search(node)
+        for cur_node in search_list:
+            if cur_node not in visited:
+                cur_farthest_node, cur_max_dist = self._dfs(cur_node, dist+1, visited)
+                if cur_max_dist > max_dist:
+                    max_dist = cur_max_dist
+                    farthest_node = cur_farthest_node
+        return farthest_node, max_dist
+
+    def _get_diameter(self, node: Node) -> int:
+        visited = set()
+        farthest_node, _ = self._dfs(node, 0, visited)
+        visited = set()
+        _, diameter = self._dfs(farthest_node, 0, visited)
+        return diameter
 
 
 def iter_parent_nodes(root: Node, maxlevel: Optional[int] = None) -> List[Tuple[Node]]:
@@ -77,6 +121,8 @@ def copy_tree(tree: Node) -> Node:
 
 if __name__ == '__main__':
 
+    # example code
+
     root = Node("root")
     a = Node("a", parent=root)
     b = Node("b", parent=root)
@@ -95,9 +141,14 @@ if __name__ == '__main__':
     i = Node("i", parent=c)
 
     print(tree_to_string(root))
-    
-    print('sum dist between e11 and i:', node_distance(e11, i, type='sum'))
-    print('max dist between e11 and i:', node_distance(e11, i, type='max'))
+
+    node_affinity = NodeAffinity(root)
+    print('sum dist between e11 and c:', node_affinity.get_dist(e11, c, 'sum'))
+    print('max dist between e11 and c:', node_affinity.get_dist(e11, c, 'max'))
+    print('neg rel (sum) between e11 and c:', node_affinity.get_neg_rel(e11, c, 'sum'))
+    print('neg rel (max) between e11 and c:', node_affinity.get_neg_rel(e11, c, 'max'))
+    print('pos rel (sum) between e11 and c:', node_affinity.get_pos_rel(e11, c, 'sum'))
+    print('pos rel (max) between e11 and c:', node_affinity.get_pos_rel(e11, c, 'max'))
 
     print('Iterate over all parent nodes:')
     

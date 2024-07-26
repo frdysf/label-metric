@@ -19,12 +19,6 @@ class WeightManager():
         self.active = active
 
     def update_weights(self, leaf_counts: torch.Tensor, all_nodes_except_root_counts: torch.Tensor):
-        # weights = {}
-        # for k, cnt in counts.items():
-        #     w = 1 / cnt
-        #     weights[k] = w / w.sum()
-        # self.weights = weights
-        # self.logger.debug('class weights have been updated')
         w = 1 / leaf_counts
         self.weight = w / w.sum()
         total_cnt = torch.ones_like(all_nodes_except_root_counts) * leaf_counts.sum()
