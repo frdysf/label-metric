@@ -15,6 +15,8 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         train_ratio: float,
         valid_ratio: float,
         logger: logging.Logger,
+        dataset_sr: int,
+        dataset_channel_num: int,
         more_level: int,
         weight_manager: WeightManager,
         batch_size: int, 
@@ -27,6 +29,8 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         self.train_ratio = train_ratio
         self.valid_ratio = valid_ratio
         self.logger = logger
+        self.dataset_sr = dataset_sr
+        self.dataset_channel_num = dataset_channel_num
         self.more_level = more_level
         self.weight_manager = weight_manager
         self.batch_size = batch_size
@@ -41,10 +45,12 @@ class OrchideaSOLDataModule(L.LightningDataModule):
                 duration = self.duration,
                 train_ratio = self.train_ratio,
                 valid_ratio = self.valid_ratio,
-                logger = self.logger
+                logger = self.logger,
+                dataset_sr = self.dataset_sr,
+                dataset_channel_num = self.dataset_channel_num
             )
             self.triplet_sampler = SampleTripletsFromTree(
-                data = self.train_set, 
+                dataset = self.train_set, 
                 more_level = self.more_level, 
                 logger = self.logger,
                 weight_manager = self.weight_manager
@@ -56,7 +62,9 @@ class OrchideaSOLDataModule(L.LightningDataModule):
                 duration = self.duration,
                 train_ratio = self.train_ratio,
                 valid_ratio = self.valid_ratio,
-                logger = self.logger
+                logger = self.logger,
+                dataset_sr = self.dataset_sr,
+                dataset_channel_num = self.dataset_channel_num
             )
         if stage == 'test':
             self.test_set = BasicOrchideaSOL(
@@ -66,7 +74,9 @@ class OrchideaSOLDataModule(L.LightningDataModule):
                 duration = self.duration,
                 train_ratio = self.train_ratio,
                 valid_ratio = self.valid_ratio,
-                logger = self.logger
+                logger = self.logger,
+                dataset_sr = self.dataset_sr,
+                dataset_channel_num = self.dataset_channel_num
             )
 
     def train_dataloader(self):
@@ -115,6 +125,8 @@ if __name__ == '__main__':
         train_ratio = 0.8,
         valid_ratio = 0.1,
         logger = logger,
+        dataset_sr = 44100,
+        dataset_channel_num = 1,
         more_level = 1,
         weight_manager = weight_manager,
         batch_size = 32,

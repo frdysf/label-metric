@@ -1,11 +1,11 @@
 import os
-from typing import Dict, List, Tuple, Any, Union
+from typing import Dict, List, Tuple, Any
 import logging
 import random
 
 import torch
 from torch.utils.data import Dataset
-from anytree import Node, find_by_attr, LevelOrderIter
+from anytree import Node, find_by_attr, LevelOrderIter, LevelOrderGroupIter
 import torchaudio
 
 from label_metric.utils.tree_utils import tree_to_string, iter_parent_nodes, NodeAffinity
@@ -21,8 +21,10 @@ class OrchideaSOL(Dataset):
         duration: float,
         train_ratio: float,
         valid_ratio: float,
-        logger: logging.Logger
-    ):
+        logger: logging.Logger,
+        dataset_sr: int,
+        dataset_channel_num: int
+    ) -> None:
         
         self.dataset_dir = os.path.join(dataset_dir, 'OrchideaSOL2020')
         assert split in ['train', 'valid', 'test']
@@ -33,11 +35,14 @@ class OrchideaSOL(Dataset):
         self.train_ratio = train_ratio
         self.valid_ratio = valid_ratio
         self.logger = logger
+        self.dataset_sr = dataset_sr
+        self.dataset_channel_num = dataset_channel_num
         
         self.data, self.tree = self.load_data()
-        self.node_affinity = NodeAffinity(self.tree)
         self.node_to_index = self.prepare_node_to_index_mapping()
         self.update_node_name_with_num()
+        self.node_affinity = NodeAffinity(self.tree)
+        self.aff_mtx = self.prepare_leaf_affinity()
 
     def __len__(self) -> int:
         return len(self.data)
@@ -48,16 +53,15 @@ class OrchideaSOL(Dataset):
     def __str__(self) -> str:
         return tree_to_string(self.tree)
 
-    def prepare_item(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def prepare_item(self, idx: int) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         audio_path = self.data[idx]['path']
-        label = self.data[idx]['label']
-        binary_label = self.data[idx]['binary_label']
         audio, sr = torchaudio.load(audio_path)
-        assert audio.shape[0] == 1 # one channel
-        assert sr == 44100
+        assert audio.shape[0] == self.dataset_channel_num
+        assert sr == self.dataset_sr
         audio = standardize_duration(audio, sr=sr, dur=self.duration)
         audio = torch.squeeze(audio, 0)
-        return audio, torch.tensor(label), torch.tensor(binary_label)
+        label = self.data[idx]['label']
+        return audio, label
     
     def load_tree(self) -> Tuple[Node, Dict[Node, str]]:
 
@@ -104,9 +108,10 @@ class OrchideaSOL(Dataset):
         dataset = []
         tree, leaf_node_to_dir = self.load_tree()
         
-        all_nodes = list(LevelOrderIter(tree))
-        assert all_nodes[0].is_root
-        all_nodes_except_root  = all_nodes[1:]
+        level_order_nodes = list(LevelOrderGroupIter(tree))
+        
+        level_order_flat_nodes = list(LevelOrderIter(tree))
+        assert level_order_flat_nodes[0].is_root
 
         for leaf in tree.leaves: # a leaf is a class
             audio_dir = leaf_node_to_dir[leaf]
@@ -123,32 +128,41 @@ class OrchideaSOL(Dataset):
             elif self.split == 'test':
                 audio_files = audio_files[train_size + valid_size:]
 
-            ancestors = list(leaf.ancestors)
-            assert ancestors[0].is_root
-            ancestors_except_root = ancestors[1:]
-            annotated_nodes = ancestors_except_root + [leaf]
+            paths = list(leaf.ancestors) + [leaf]
+            assert paths[0].is_root
+            assert len(level_order_nodes) == len(paths)
+            per_level_labels = []
+            for i in range(len(paths)):
+                if len(level_order_nodes[i]) > 1:
+                    per_level_labels.append(level_order_nodes[i].index(paths[i]))
+            per_level_labels = torch.tensor(per_level_labels)
+
+            binary_labels = torch.tensor([1.0 if node in paths else 0.0 \
+                for node in level_order_flat_nodes[1:]])
             
             for f in audio_files:
                 assert f.endswith('.wav')
                 fn_sep = f.split('-')
                 data = {
-                    'path':             os.path.join(audio_dir, f),
-                    'inst_fam':         leaf.parent.parent.parent.name,
-                    'inst':             leaf.parent.parent.name,
-                    'mute':             leaf.parent.name,
-                    'p_tech':           leaf.name,
-                    'pitch':            fn_sep[2],
-                    'dynamics':         fn_sep[3],
-                    'node':             leaf,
-                    'label':            tree.leaves.index(leaf),
-                    'binary_label':     [1.0 if node in annotated_nodes else 0.0 \
-                                        for node in all_nodes_except_root]
+                    'path':                 os.path.join(audio_dir, f),
+                    'inst_fam':             paths[1].name,
+                    'inst':                 paths[2].name,
+                    'mute':                 paths[3].name,
+                    'p_tech':               paths[4].name,
+                    'pitch':                fn_sep[2],
+                    'dynamics':             fn_sep[3],
+                    'node':                 leaf,
+                    'label': {
+                        'leaf':             torch.tensor(tree.leaves.index(leaf)),
+                        'per_level':        per_level_labels,
+                        'binary':           binary_labels
+                    }
                 }
                 dataset.append(data)
 
         return dataset, tree
 
-    def prepare_node_to_index_mapping(self) -> Dict[Node, List]:
+    def prepare_node_to_index_mapping(self) -> Dict[Node, List[int]]:
         node_to_index = {}
         for leaf in self.tree.leaves:
             node_to_index[leaf] = []
@@ -176,23 +190,24 @@ class OrchideaSOL(Dataset):
     def get_node_num(self) -> int:
         return len(list(LevelOrderIter(self.tree)))
 
-    def get_node_affinity_from_label(self, 
-        label1: int, 
-        label2: int
-    ) -> Dict[str, Dict[str, Union[int, float]]]:
-        node1 = self.label_to_node(label1)
-        node2 = self.label_to_node(label2)
-        affinity = {
-            'positive': {
-                'sum': self.node_affinity(node1, node2, 'positive', 'sum')
-                'max': self.node_affinity(node1, node2, 'positive', 'max')
-            }
-            'negative': {
-                'sum': self.node_affinity(node1, node2, 'negative', 'sum')
-                'max': self.node_affinity(node1, node2, 'negative', 'max')
-            }
+    def get_level_sizes(self) -> List[int]:
+        levels = list(LevelOrderGroupIter(self.tree))
+        sizes = [len(level) for level in levels if len(level) > 1]
+        return sizes
+
+    def prepare_leaf_affinity(self) -> Dict[str, torch.Tensor]:
+        leaf_num = self.get_leaf_num()
+        aff_mtx = {
+            'sum': torch.zeros(leaf_num, leaf_num),
+            'max': torch.zeros(leaf_num, leaf_num)
         }
-        return affinity
+        for i in range(leaf_num):
+            node_i = self.label_to_node(i)
+            for j in range(leaf_num):
+                node_j = self.label_to_node(j)
+                aff_mtx['sum'][i,j] = self.node_affinity(node_i, node_j, 'positive', 'sum')
+                aff_mtx['max'][i,j] = self.node_affinity(node_i, node_j, 'positive', 'max')
+        return aff_mtx
 
 
 class BasicOrchideaSOL(OrchideaSOL):
@@ -205,7 +220,9 @@ class BasicOrchideaSOL(OrchideaSOL):
         duration: float,
         train_ratio: float,
         valid_ratio: float,
-        logger: logging.Logger
+        logger: logging.Logger,
+        dataset_sr: int,
+        dataset_channel_num: int
     ):
 
         super().__init__(
@@ -215,7 +232,9 @@ class BasicOrchideaSOL(OrchideaSOL):
             duration,
             train_ratio,
             valid_ratio,
-            logger
+            logger,
+            dataset_sr,
+            dataset_channel_num
         )
     
     def __getitem__(
@@ -236,7 +255,9 @@ class TripletOrchideaSOL(OrchideaSOL):
         duration: float,
         train_ratio: float,
         valid_ratio: float,
-        logger: logging.Logger
+        logger: logging.Logger,
+        dataset_sr: int,
+        dataset_channel_num: int
     ):
 
         super().__init__(
@@ -246,7 +267,9 @@ class TripletOrchideaSOL(OrchideaSOL):
             duration,
             train_ratio,
             valid_ratio,
-            logger
+            logger,
+            dataset_sr,
+            dataset_channel_num
         )
     
     def __getitem__(
@@ -279,7 +302,9 @@ if __name__ == '__main__':
         duration = 1.0,
         train_ratio = 0.8,
         valid_ratio = 0.1,
-        logger = logger
+        logger = logger,
+        dataset_sr = 44100,
+        dataset_channel_num = 1
     )
 
     valid_set = BasicOrchideaSOL(
@@ -289,5 +314,23 @@ if __name__ == '__main__':
         duration = 1.0,
         train_ratio = 0.8,
         valid_ratio = 0.1,
-        logger = logger        
+        logger = logger,
+        dataset_sr = 44100,
+        dataset_channel_num = 1    
     )
+
+    print(valid_set.get_level_sizes())
+
+    from torch.utils.data import DataLoader
+
+    valid_loader = DataLoader(
+        valid_set,
+        batch_size = 32,
+        shuffle = True,
+        drop_last = False
+    )
+
+    batch = next(iter(valid_loader))
+    for k,v in batch[1].items():
+        print(k, v.shape)
+    

@@ -1,6 +1,6 @@
-from typing import Set, Tuple, List, Union
+from typing import Set, Tuple, List
 
-from anytree import Node, RenderTree, LevelOrderGroupIter
+from anytree import Node, RenderTree, LevelOrderIter, LevelOrderGroupIter
 from anytree.walker import Walker
 from typing import Optional, Tuple, List
 from anytree.importer import DictImporter
@@ -50,24 +50,18 @@ def node_distance(node1: Node, node2: Node, dist_type: str = 'sum') -> int:
 class NodeAffinity():
     def __init__(self, any_node: Node):
         self.any_node = any_node
-        self.tree_height = node.root.height
-        self.tree_diameter = self._get_diameter(node)
+        self.tree_height = any_node.root.height
+        self.tree_diameter = self._get_diameter(any_node)
     
     def get_dist(self, node1: Node, node2: Node, dist_type: str) -> int:
         assert node1.root is self.any_node.root
         return node_distance(node1, node2, dist_type)
 
-    def get_rel(
-            self, 
-            node1: Node, 
-            node2: Node, 
-            rel_type: str, 
-            dist_type: str
-        ) -> Union[int, float]:
+    def __call__(self, node1: Node, node2: Node, rel_type: str, dist_type: str) -> float:
         assert rel_type in ['positive', 'negative']
         dist = self.get_dist(node1, node2, dist_type)
         if rel_type == 'negative':
-            return -dist
+            return float(-dist)
         if dist_type == 'max':
             return 1 - dist / self.tree_height
         elif dist_type == 'sum':
@@ -151,12 +145,12 @@ if __name__ == '__main__':
     print(tree_to_string(root))
 
     node_affinity = NodeAffinity(root)
-    print('sum dist between e11 and c:', node_affinity.get_dist(e11, c, 'sum'))
-    print('max dist between e11 and c:', node_affinity.get_dist(e11, c, 'max'))
-    print('neg rel (sum) between e11 and c:', node_affinity.get_rel(e11, c, 'negative', 'sum'))
-    print('neg rel (max) between e11 and c:', node_affinity.get_rel(e11, c, 'negative', 'max'))
-    print('pos rel (sum) between e11 and c:', node_affinity.get_rel(e11, c, 'positive', 'sum'))
-    print('pos rel (max) between e11 and c:', node_affinity.get_rel(e11, c, 'positive', 'max'))
+    
+    # e11 vs all other nodes
+    for node in LevelOrderIter(root):
+        print(f'between {e11} and {node}')
+        print('positive max rel:', node_affinity(e11, node, 'positive', 'max'))
+        print('positive sum rel:', node_affinity(e11, node, 'positive', 'sum'))
 
     print('Iterate over all parent nodes:')
     

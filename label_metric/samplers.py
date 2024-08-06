@@ -1,6 +1,6 @@
 from itertools import combinations, permutations
 import random
-from typing import List, Tuple, Iterator, Dict
+from typing import List, Tuple, Iterator, Dict, Union
 import logging
 import textwrap
 
@@ -14,45 +14,43 @@ from label_metric.utils.tree_utils import (
 
 class WeightManager():
 
-    def __init__(self, logger: logging.Logger, active: bool):
+    def __init__(self, logger: logging.Logger, active: bool) -> None:
         self.logger = logger
         self.active = active
 
-    def update_weights(self, leaf_counts: torch.Tensor, all_nodes_except_root_counts: torch.Tensor):
-        w = 1 / leaf_counts
-        self.weight = w / w.sum()
-        total_cnt = torch.ones_like(all_nodes_except_root_counts) * leaf_counts.sum()
-        self.pos_weight = (total_cnt - all_nodes_except_root_counts) / all_nodes_except_root_counts
+    def update_weight(self, counter: Dict[str, Union[torch.Tensor, List[torch.Tensor]]]) -> None:
+        # w = 1 / leaf_counts
+        # self.weight = w / w.sum()
+        # total_cnt = torch.ones_like(all_nodes_except_root_counts) * leaf_counts.sum()
+        # self.pos_weight = (total_cnt - all_nodes_except_root_counts) / all_nodes_except_root_counts
+        self.weight = {}
+        w = 1 / counter['leaf']
+        self.weight['leaf'] = w / w.sum()
+        total_cnt = torch.ones_like(counter['binary']) * counter['leaf'].sum()
+        self.weight['binary'] = (total_cnt - counter['binary']) / counter['binary']
+        self.weight['per_level'] = []
+        for cnt in counter['per_level']:
+            w = 1 / cnt
+            self.weight['per_level'].append(w / w.sum())
 
-    def get_weight(self) -> torch.Tensor:
+    def get_weight(self) -> Dict[str, Union[torch.Tensor, List[torch.Tensor]]]:
+        assert hasattr(self, 'weight'), 'update weight first'
         if not self.active:
-            return None
-        self.logger.debug('getting weight from weight manager')
-        assert hasattr(self, 'weight'), 'weight have not been set yet'
+            return {'leaf': None, 'binary': None, 'per_level': [None] * len(self.weight['per_level'])}
         return self.weight
-
-    def get_pos_weight(self) -> torch.Tensor:
-        if not self.active:
-            return None
-        self.logger.debug('getting pos_weight from weight manager')
-        assert hasattr(self, 'pos_weight'), 'pos_weight have not been set yet'
-        return self.pos_weight
-
-    def clear_weights(self):
-        self.weight = None
-        self.pos_weight = None
 
 
 class SampleTripletsFromTree(Sampler):
 
     def __init__(
         self, 
-        data: Dataset, 
+        dataset: Dataset, 
         more_level: int,
         logger: logging.Logger,
         weight_manager: WeightManager
-    ):
-        self.data = data
+    ) -> None:
+
+        self.dataset = dataset
         self.more_level = more_level
         self.logger = logger
         self.weight_manager = weight_manager
@@ -70,17 +68,26 @@ class SampleTripletsFromTree(Sampler):
         return iter(self.triplets)
 
     def sample(self) -> List[Tuple[int, int, int]]:
+
+        self.counter = {}
+        leaf_num = self.dataset.get_leaf_num()
+        self.counter['leaf'] = torch.zeros(leaf_num)
+        binary_num = self.dataset.get_node_num() - 1
+        self.counter['binary'] = torch.zeros(binary_num)
+        self.counter['per_level'] = []
+        level_sizes = self.dataset.get_level_sizes()
+        for size in level_sizes:
+            self.counter['per_level'].append(torch.zeros(size))
+
         triplets = []
-        num_leaf = len(self.data.tree.leaves)
-        num_all_nodes_except_root = len(list(LevelOrderIter(self.data.tree))) - 1
-        self.leaf_counter = torch.zeros(num_leaf)
-        self.all_nodes_except_root_counter = torch.zeros(num_all_nodes_except_root)
-        for nodes in iter_parent_nodes(self.data.tree):
+        for nodes in iter_parent_nodes(self.dataset.tree):
             for parent_node in nodes:
                 self.logger.debug(f'visiting {parent_node}')
                 self.logger.debug(tree_to_string(parent_node))
                 triplets += self.sample_subtree(parent_node)
-        self.weight_manager.update_weights(self.leaf_counter, self.all_nodes_except_root_counter)
+        
+        self.weight_manager.update_weight(self.counter)
+        
         return triplets
 
     def sample_subtree(self, root: Node) -> List[Tuple[int, int, int]]:
@@ -99,13 +106,13 @@ class SampleTripletsFromTree(Sampler):
                 f"neg: {neg.name.split(' ')[0]}"
             )
             shallow_leaf_nodes = [node for node in pos.leaves \
-                                  if node_distance(pos, node) < more_level]
+                if node_distance(pos, node) < more_level]
             more_level_nodes = list(list(LevelOrderGroupIter(pos))[more_level])
             nodes = shallow_leaf_nodes + more_level_nodes
             self.logger.debug(f"under pos: {[node.name.split(' ')[0] for node in nodes]}")
             if len(nodes) == 1: # nodes = [pos]
-                idx_a, idx_p = random.sample(self.data.node_to_index[nodes[0]], 2)
-                idx_n = random.choice(self.data.node_to_index[neg])
+                idx_a, idx_p = random.sample(self.dataset.node_to_index[nodes[0]], 2)
+                idx_n = random.choice(self.dataset.node_to_index[neg])
                 triplets.append((idx_a, idx_p, idx_n))
                 self._count(idx_a)
                 self._count(idx_p)
@@ -116,18 +123,20 @@ class SampleTripletsFromTree(Sampler):
                         f"x_a: from {node_a.name.split(' ')[0]}, "
                         f"x_p: from {node_p.name.split(' ')[0]}"
                     )
-                    idx_a = random.choice(self.data.node_to_index[node_a])
-                    idx_p = random.choice(self.data.node_to_index[node_p])
-                    idx_n = random.choice(self.data.node_to_index[neg])
+                    idx_a = random.choice(self.dataset.node_to_index[node_a])
+                    idx_p = random.choice(self.dataset.node_to_index[node_p])
+                    idx_n = random.choice(self.dataset.node_to_index[neg])
                     triplets.append((idx_a, idx_p, idx_n))
                     self._count(idx_a)
                     self._count(idx_p)
                     self._count(idx_n)
         return triplets
 
-    def _count(self, idx):
-        self.leaf_counter[self.data.data[idx]['label']] += 1
-        self.all_nodes_except_root_counter += torch.tensor(self.data.data[idx]['binary_label'])
+    def _count(self, idx) -> None:
+        self.counter['leaf'][self.dataset.data[idx]['label']['leaf']] += 1
+        for level, cnt in enumerate(self.counter['per_level']):
+            cnt[self.dataset.data[idx]['label']['per_level'][level]] += 1
+        self.counter['binary'] += self.dataset.data[idx]['label']['binary']
 
 
 if __name__ == '__main__':
@@ -152,13 +161,15 @@ if __name__ == '__main__':
         duration = 1.0,
         train_ratio = 0.8,
         valid_ratio = 0.1,
-        logger = logger
+        logger = logger,
+        dataset_sr = 44100,
+        dataset_channel_num = 1
     )
 
     weight_manager = WeightManager(logger, active = True)
 
     sampler = SampleTripletsFromTree(
-        data = train_set, 
+        dataset = train_set, 
         more_level = 1,
         logger = logger,
         weight_manager = weight_manager
@@ -174,18 +185,17 @@ if __name__ == '__main__':
     
     batch = next(iter(train_loader))
 
-    print("weight of the first epoch:\n"
-          f"{weight_manager.get_weight()}")
-    print("pos_weight of the first epoch:\n"
-          f"{weight_manager.get_pos_weight()}")
-    print("anchors in the first minibatch: "
-          f"audio shape {batch['anc'][0].shape}, "
-          f"label shape {batch['anc'][1].shape}, "
-          f"binary label shape {batch['anc'][2].shape}")
-    print("labels of the first triplet in the minibatch: "
-          f"anchor: {batch['anc'][1][0]}, "
-          f"positive: {batch['pos'][1][0]}, "
-          f"negative: {batch['neg'][1][0]}")
+    print("\nweight of the first epoch:")
+    weight = weight_manager.get_weight()
+    print(f"leaf weight shape: {weight['leaf'].shape}")
+    print(f"binary weight shape: {weight['binary'].shape}")
+    print(f"per_level weight shape: {[w.shape for w in weight['per_level']]}")
+
+    print("\nlabels of the first anchor:")
+    _, label = batch['anc']
+    print(f"leaf label: {label['leaf'][0]}")
+    print(f"binary label: {label['binary'][0]}")
+    print(f"per_level label: {[y for y in label['per_level'][0]]}")
 
     """ Plotting the first batch
 
@@ -197,13 +207,13 @@ if __name__ == '__main__':
         hop_length = 512
     )
 
-    x_a, y_a, binary_y_a = batch['anc']
+    x_a, y_a = batch['anc']
     x_a = melspec(x_a)
 
-    x_p, y_p, binary_y_p = batch['pos']
+    x_p, y_p = batch['pos']
     x_p = melspec(x_p)
 
-    x_n, y_n, binary_y_n = batch['neg']
+    x_n, y_n = batch['neg']
     x_n = melspec(x_n)
     
     import matplotlib.pyplot as plt
