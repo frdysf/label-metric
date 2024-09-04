@@ -1,8 +1,7 @@
-from typing import Set, Tuple, List, Dict
+from typing import Set, Tuple, List, Dict, Optional
 
 from anytree import Node, RenderTree, LevelOrderIter, LevelOrderGroupIter
 from anytree.walker import Walker
-from typing import Optional, Tuple, List
 from anytree.importer import DictImporter
 from anytree.exporter import DictExporter
 

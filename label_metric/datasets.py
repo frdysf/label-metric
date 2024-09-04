@@ -53,7 +53,8 @@ class OrchideaSOL(Dataset):
         # set seed here for consistent split
         L.seed_everything(random_seed)
         # prepare data
-        self.data, self.tree, self.visible_leaves = self.load_data()
+        self.data, self.tree, self.visible_leaves, self.level_order_visible_nodes, \
+            self.level_order_flat_visible_nodes = self.load_data()
         self.node_to_index = self.prepare_node_to_index_mapping()
         self.node_affinity = NodeAffinity(self.tree)
         self.aff_mtx = self.prepare_leaf_affinity()
@@ -170,7 +171,7 @@ class OrchideaSOL(Dataset):
                 audio_files = audio_files[train_size + valid_size:]
             # load files
             for f in audio_files:
-                assert f.endswith('.wav')
+                assert f.endswith('.wav'), f'{f}'
                 fn_sep = f.split('-')
                 data = {
                     'path':                 os.path.join(audio_dir, f),
@@ -193,7 +194,8 @@ class OrchideaSOL(Dataset):
         self.update_node_name_with_str(visible_leaves, '[visible]')
         self.update_node_name_with_str(deficient_leaves, '[deficient]')
         self.update_node_name_with_str(cv_unseen_leaves, '[cv-unseen]')
-        return dataset, tree, visible_leaves
+        return dataset, tree, visible_leaves, level_order_visible_nodes, \
+            level_order_flat_visible_nodes
 
     def prepare_node_to_index_mapping(self) -> Dict[Node, List[int]]:
         node_to_index = {}
@@ -235,20 +237,6 @@ class OrchideaSOL(Dataset):
                 aff_mtx['sum'][i,j] = self.node_affinity(node_i, node_j, 'sum')
                 aff_mtx['max'][i,j] = self.node_affinity(node_i, node_j, 'max')
         return aff_mtx
-
-    # def label_to_node(self, label: int) -> Node:
-    #     return self.tree.leaves[label]
-
-    # def get_leaf_num(self) -> int:
-    #     return len(self.tree.leaves)
-
-    # def get_node_num(self) -> int:
-    #     return len(list(LevelOrderIter(self.tree)))
-
-    # def get_level_sizes(self) -> List[int]:
-    #     levels = list(LevelOrderGroupIter(self.tree))
-    #     sizes = [len(level) for level in levels if len(level) > 1]
-    #     return sizes
 
     def update_node_name_with_num(self, node_to_index: Dict[Node, List[int]]) -> None:
         for node in LevelOrderIter(self.tree):
@@ -348,6 +336,7 @@ if __name__ == '__main__':
 
     # example code
 
+    from label_metric.paths import DATA_DIR_EECS, DATA_DIR_APOCRITA
     from label_metric.utils.log_utils import setup_logger
     logger = logging.getLogger(__name__)
     setup_logger(logger)
@@ -359,7 +348,7 @@ if __name__ == '__main__':
         logger.info(f'datasets for cv fold {i}:')
 
         train_set = TripletOrchideaSOL(
-            dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+            dataset_dir = DATA_DIR_EECS,
             split = 'train',
             min_num_per_leaf = 10,
             duration = 1.0,
@@ -375,7 +364,7 @@ if __name__ == '__main__':
         )
 
         valid_set = BasicOrchideaSOL(
-            dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+            dataset_dir = DATA_DIR_EECS,
             split = 'valid',
             min_num_per_leaf = 10,
             duration = 1.0,
@@ -391,7 +380,7 @@ if __name__ == '__main__':
         )
 
         test_set = BasicOrchideaSOL(
-            dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+            dataset_dir = DATA_DIR_EECS,
             split = 'test',
             min_num_per_leaf = 10,
             duration = 1.0,
@@ -407,7 +396,7 @@ if __name__ == '__main__':
         )
 
         predict_set = BasicOrchideaSOL(
-            dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+            dataset_dir = DATA_DIR_EECS,
             split = 'predict',
             min_num_per_leaf = 10,
             duration = 1.0,
@@ -447,4 +436,3 @@ if __name__ == '__main__':
     print(f'audio shape: {batch[0].shape}\nlabel shape:')
     for k,v in batch[1].items():
         print(k, v.shape)
-    

@@ -1,0 +1,47 @@
+# config.yaml
+where: 'eecs'
+weight_manager:
+  active: True
+data:
+  min_num_per_leaf: 10
+  duration: 1.0
+  train_ratio: 0.8
+  valid_ratio: 0.1
+  dataset_sr: 44100
+  dataset_channel_num: 1
+  fold_num: 5
+  fold_id: 0
+  mask_value: -1
+  random_seed: 2024
+  more_level: 1
+  batch_size: 32
+  num_workers: 6
+model:
+  duration: 1.0
+  conv_out_channels: 128
+  embedding_size: 256
+  train_spec_max_val: None
+  train_spec_min_val: None
+  sr: 44100
+  n_fft: 2048
+  hop_length: 512
+  margin: 0.3
+  use_triplet: True
+  use_leaf: False
+  use_binary: False
+  use_per_level: True
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  retrieval_precision_top_k: 5
+  lr_scheduler_patience: 250
+  lr_reduce_factor: 0.6
+  mask_value: -1
+trainer:
+  save_dir: 'lightning_logs'
+  name: 'fold0'
+  version: 'pl+t_v1'
+  max_epochs: 5000
+  gradient_clip_val: 1.
+  enable_progress_bar: False
+  check_val_every_n_epoch: 1
+  early_stopping_patience: 500

@@ -1,11 +1,10 @@
-from itertools import combinations, permutations
+from itertools import permutations
 import random
 from typing import List, Tuple, Iterator, Dict, Union
 import logging
-import textwrap
 
 import torch
-from anytree import Node, LevelOrderGroupIter, LevelOrderIter
+from anytree import Node, LevelOrderGroupIter
 from torch.utils.data import Dataset, Sampler
 
 from label_metric.utils.tree_utils import (
@@ -19,10 +18,6 @@ class WeightManager():
         self.active = active
 
     def update_weight(self, counter: Dict[str, Union[torch.Tensor, List[torch.Tensor]]]) -> None:
-        # w = 1 / leaf_counts
-        # self.weight = w / w.sum()
-        # total_cnt = torch.ones_like(all_nodes_except_root_counts) * leaf_counts.sum()
-        # self.pos_weight = (total_cnt - all_nodes_except_root_counts) / all_nodes_except_root_counts
         self.weight = {}
         w = 1 / counter['leaf']
         self.weight['leaf'] = w / w.sum()
@@ -49,7 +44,6 @@ class SampleTripletsFromTree(Sampler):
         logger: logging.Logger,
         weight_manager: WeightManager
     ) -> None:
-
         self.dataset = dataset
         self.more_level = more_level
         self.logger = logger
@@ -68,26 +62,26 @@ class SampleTripletsFromTree(Sampler):
         return iter(self.triplets)
 
     def sample(self) -> List[Tuple[int, int, int]]:
-
+        # label counter
         self.counter = {}
-        leaf_num = self.dataset.get_leaf_num()
+        leaf_num = len(self.dataset.visible_leaves)
         self.counter['leaf'] = torch.zeros(leaf_num)
-        binary_num = self.dataset.get_node_num() - 1
+        binary_num = len(self.dataset.level_order_flat_visible_nodes) - 1
         self.counter['binary'] = torch.zeros(binary_num)
         self.counter['per_level'] = []
-        level_sizes = self.dataset.get_level_sizes()
-        for size in level_sizes:
-            self.counter['per_level'].append(torch.zeros(size))
-
+        for nodes in self.dataset.level_order_visible_nodes:
+            if len(nodes) > 1:
+                self.counter['per_level'].append(torch.zeros(len(nodes)))
+        # sample
         triplets = []
         for nodes in iter_parent_nodes(self.dataset.tree):
             for parent_node in nodes:
-                self.logger.debug(f'visiting {parent_node}')
-                self.logger.debug(tree_to_string(parent_node))
-                triplets += self.sample_subtree(parent_node)
-        
+                if self._is_visible(parent_node):
+                    self.logger.debug(f'visiting {parent_node}')
+                    self.logger.debug(tree_to_string(parent_node))
+                    triplets += self.sample_subtree(parent_node)
+        # update weights
         self.weight_manager.update_weight(self.counter)
-        
         return triplets
 
     def sample_subtree(self, root: Node) -> List[Tuple[int, int, int]]:
@@ -97,10 +91,11 @@ class SampleTripletsFromTree(Sampler):
                 x_n from neg
         """
         triplets = []
-        if len(root.children) == 1:
+        visible_children = [child for child in root.children if self._is_visible(child)]
+        if len(visible_children) == 1:
             return triplets
         more_level = min(root.height - 1, self.more_level) # under pos
-        for pos, neg in permutations(root.children, 2):
+        for pos, neg in permutations(visible_children, 2):
             self.logger.debug(
                 f"pos: {pos.name.split(' ')[0]}, "
                 f"neg: {neg.name.split(' ')[0]}"
@@ -109,6 +104,7 @@ class SampleTripletsFromTree(Sampler):
                 if node_distance(pos, node) < more_level]
             more_level_nodes = list(list(LevelOrderGroupIter(pos))[more_level])
             nodes = shallow_leaf_nodes + more_level_nodes
+            nodes = [node for node in nodes if self._is_visible(node)]
             self.logger.debug(f"under pos: {[node.name.split(' ')[0] for node in nodes]}")
             if len(nodes) == 1: # nodes = [pos]
                 idx_a, idx_p = random.sample(self.dataset.node_to_index[nodes[0]], 2)
@@ -118,7 +114,7 @@ class SampleTripletsFromTree(Sampler):
                 self._count(idx_p)
                 self._count(idx_n)
             else:
-                for node_a, node_p in combinations(nodes, 2):
+                for node_a, node_p in permutations(nodes, 2):
                     self.logger.debug(
                         f"x_a: from {node_a.name.split(' ')[0]}, "
                         f"x_p: from {node_p.name.split(' ')[0]}"
@@ -132,11 +128,14 @@ class SampleTripletsFromTree(Sampler):
                     self._count(idx_n)
         return triplets
 
-    def _count(self, idx) -> None:
+    def _count(self, idx: int) -> None:
         self.counter['leaf'][self.dataset.data[idx]['label']['leaf']] += 1
         for level, cnt in enumerate(self.counter['per_level']):
             cnt[self.dataset.data[idx]['label']['per_level'][level]] += 1
         self.counter['binary'] += self.dataset.data[idx]['label']['binary']
+
+    def _is_visible(self, node: Node) -> bool:
+        return node in self.dataset.level_order_flat_visible_nodes
 
 
 if __name__ == '__main__':
@@ -148,14 +147,13 @@ if __name__ == '__main__':
 
     from label_metric.datasets import TripletOrchideaSOL, BasicOrchideaSOL
     from label_metric.utils.log_utils import setup_logger
+    from label_metric.paths import DATA_DIR_EECS, DATA_DIR_APOCRITA
 
     logger = logging.getLogger(__name__)
     setup_logger(logger)
 
-    L.seed_everything(2024)
-
     train_set = TripletOrchideaSOL(
-        dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+        dataset_dir = DATA_DIR_EECS,
         split = 'train',
         min_num_per_leaf = 10,
         duration = 1.0,
@@ -163,10 +161,14 @@ if __name__ == '__main__':
         valid_ratio = 0.1,
         logger = logger,
         dataset_sr = 44100,
-        dataset_channel_num = 1
+        dataset_channel_num = 1,
+        fold_num = 5,
+        fold_id = 0,
+        mask_value = -1,
+        random_seed = 2024
     )
 
-    weight_manager = WeightManager(logger, active = True)
+    weight_manager = WeightManager(logger, active=True)
 
     sampler = SampleTripletsFromTree(
         dataset = train_set, 

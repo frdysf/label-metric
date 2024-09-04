@@ -1,9 +1,8 @@
 import logging
-from typing import Optional, Tuple, Dict, Union, List
+from typing import Tuple, Dict, Union, List
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import lightning as L
 from torchmetrics import Accuracy, F1Score
@@ -27,7 +26,11 @@ class LabelMetricModule(L.LightningModule):
         my_logger: logging.Logger,
         weight_manager: WeightManager,
         learning_rate: float,
-        retrieval_precision_top_k: int
+        weight_decay: float,
+        lr_reduce_factor: float,
+        retrieval_precision_top_k: int,
+        lr_scheduler_patience: int,
+        mask_value: int
     ):
         super().__init__()
         
@@ -57,26 +60,40 @@ class LabelMetricModule(L.LightningModule):
         
         # optimization
         self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.lr_scheduler_patience = lr_scheduler_patience
+        self.lr_reduce_factor = lr_reduce_factor
         
         # evaluation
-        self.leaf_head_accuracy = Accuracy(
+        self.leaf_accuracy = Accuracy(
             task = 'multiclass', 
             num_classes = prediction_heads['leaf'].num_classes
         )
-        self.leaf_head_f1 = F1Score(
+        self.leaf_f1 = F1Score(
             task = 'multiclass', 
             num_classes = prediction_heads['leaf'].num_classes
         )
-        self.ANER_head_accuracy = Accuracy(
+        self.binary_accuracy = Accuracy(
             task = 'multilabel',
             num_labels = prediction_heads['binary'].num_classes
         )
-        self.ANER_head_f1 = F1Score(
+        self.binary_f1 = F1Score(
             task = 'multilabel',
             num_labels = prediction_heads['binary'].num_classes
+        )
+        # note that in Orchidea SOL's tree structure, bottom level is equivalent to leaf level
+        self.bottom_level_accuracy = Accuracy(
+            task = 'multiclass',
+            num_classes = prediction_heads['per_level'][-1].num_classes
+        )
+        self.bottom_level_f1 = F1Score(
+            task = 'multiclass', 
+            num_classes = prediction_heads['per_level'][-1].num_classes
         )
         self.rp_top_k = retrieval_precision_top_k
         self.retrieval_precision = RetrievalPrecision(top_k=self.rp_top_k)
+        
+        self.mask_value = mask_value
         
         # custom logger
         self.my_logger = my_logger
@@ -150,7 +167,7 @@ class LabelMetricModule(L.LightningModule):
         if self.loss_activations['triplet']:
             self.log('train_loss/triplet', triplet_loss)
         if self.loss_activations['leaf']:
-            self.log('train_loss/softmax_on_leaf', softmax_on_leaf)
+            self.log('train_loss/leaf', softmax_on_leaf)
         if self.loss_activations['binary']:
             self.log('train_loss/binary', binary_loss)
         if self.loss_activations['per_level']:
@@ -158,91 +175,216 @@ class LabelMetricModule(L.LightningModule):
         self.log('train_loss/total', loss)
         
         return loss
-
-    def on_validation_epoch_start(self):
+    
+    def on_eval_epoch_start(self):
         self.clf_loss['leaf'].weight = None
         self.clf_loss['binary'].pos_weight = None
         for loss_fn in self.clf_loss['per_level']:
             loss_fn.weight = None
-        self.val_embeddings = []
-        self.val_labels = []
+        self.eval_embeddings = []
+        self.eval_labels = []
+        self.eval_aff_idx = []
+        self.eval_per_level_labels = []
 
-    def validation_step(self, batch, batch_idx):
-        
+    def on_validation_epoch_start(self):
+        self.on_eval_epoch_start()
+    
+    def on_test_epoch_start(self):
+        self.on_eval_epoch_start()
+
+    def eval_step(self, batch, stage: str):
+
         x, y = batch
         z = self(x)
         
         # softmax on leaves
         logits = self.prediction_heads['leaf'](z)
-        val_softmax_on_leaf = self.clf_loss['leaf'](logits, y['leaf'])
+        eval_softmax_on_leaf = self.clf_loss['leaf'](logits, y['leaf'])
         if self.loss_activations['leaf']:
-            self.log('valid_loss/softmax_on_leaf', val_softmax_on_leaf)
+            self.log(f'{stage}_loss/leaf', eval_softmax_on_leaf)
         
         # binary on all nodes except root
         binary_logits = self.prediction_heads['binary'](z)
-        val_binary_loss = self.clf_loss['binary'](binary_logits, y['binary'])
+        eval_binary_loss = self.clf_loss['binary'](binary_logits, y['binary'])
         if self.loss_activations['binary']:
-            self.log('valid_loss/binary', val_binary_loss)
+            self.log(f'{stage}_loss/binary', eval_binary_loss)
 
         # softmax per level
-        val_softmax_per_level = torch.tensor(.0, device=self.device)
+        eval_softmax_per_level = torch.tensor(.0, device=self.device)
         level_num = len(self.prediction_heads['per_level'])
         for i in range(level_num):
             phead = self.prediction_heads['per_level'][i]
-            val_softmax_per_level += self.clf_loss['per_level'][i](phead(z), y['per_level'][:,i])
+            eval_softmax_per_level += self.clf_loss['per_level'][i](phead(z), y['per_level'][:,i])
+        bottom_level_logits = self.prediction_heads['per_level'][-1](z)
         if self.loss_activations['per_level']:
-            self.log('valid_loss/per_level', val_softmax_per_level)
+            self.log(f'{stage}_loss/per_level', eval_softmax_per_level)
+
+        # total val loss
+        total_eval_loss = eval_softmax_on_leaf * self.loss_activations['leaf'] + \
+            eval_binary_loss * self.loss_activations['binary'] + \
+            eval_softmax_per_level * self.loss_activations['per_level']
+        self.log(f'{stage}_loss/total', total_eval_loss)
         
         # retrieval metrics will be computed on epoch end
-        self.val_embeddings.append(z)
-        self.val_labels.append(y['leaf'])
+        self.eval_embeddings.append(z)
+        self.eval_labels.append(y['leaf'])
+        self.eval_aff_idx.append(y['aff_idx'])
+        self.eval_per_level_labels.append(y['per_level'])
         
         # update classification metrics
-        self.leaf_head_accuracy.update(logits, y['leaf'])
-        self.ANER_head_accuracy.update(binary_logits, y['binary'])
-        self.leaf_head_f1.update(logits, y['leaf'])
-        self.ANER_head_f1.update(binary_logits, y['binary'])
+        self.leaf_accuracy.update(logits, y['leaf'])
+        self.leaf_f1.update(logits, y['leaf'])
+        self.binary_accuracy.update(binary_logits, y['binary'])
+        self.binary_f1.update(binary_logits, y['binary'])
+        self.bottom_level_accuracy.update(bottom_level_logits, y['per_level'][:,-1])
+        self.bottom_level_f1.update(bottom_level_logits, y['per_level'][:,-1])
 
-    def on_validation_epoch_end(self):
+    def validation_step(self, batch, batch_idx):
+        self.eval_step(batch, 'valid')
+
+    def test_step(self, batch, batch_idx):
+        self.eval_step(batch, 'test')
+
+    def on_eval_epoch_end(self, stage):
+        self.eval_embeddings = torch.cat(self.eval_embeddings)
+        self.eval_labels = torch.cat(self.eval_labels)
+        self.eval_aff_idx = torch.cat(self.eval_aff_idx)
+        self.eval_per_level_labels = torch.cat(self.eval_per_level_labels)
         # retrieval
-        rp = self._compute_rp(self.val_embeddings, self.val_labels)
-        adaptive_rp = self._compute_adaptive_rp(self.val_embeddings, self.val_labels)
-        self.log(f'valid_metric/retrieval/precision@{self.rp_top_k}', rp)
-        self.log(f'valid_metric/retrieval/adaptive_precision@{self.rp_top_k}', adaptive_rp)
-        ndcg_max, ndcg_sum = self._compute_ndcg(self.val_embeddings, self.val_labels)
-        self.log(f'valid_metric/retrieval/ndcg_max', ndcg_max)
-        self.log(f'valid_metric/retrieval/ndcg_sum', ndcg_sum)
+        similarity_matrix = self.triplet_loss.distance.compute_mat(self.eval_embeddings, self.eval_embeddings) * \
+            torch.tensor(1. if self.triplet_loss.distance.is_inverted else -1.)
+        rp = self._compute_rp(similarity_matrix, self.eval_labels)
+        adaptive_rp = self._compute_adaptive_rp(similarity_matrix, self.eval_labels)
+        self.log(f'{stage}_metric/retrieval/precision@{self.rp_top_k}', rp)
+        self.log(f'{stage}_metric/retrieval/adaptive_precision@{self.rp_top_k}', adaptive_rp)
+        ndcg_max, ndcg_sum = self._compute_ndcg(similarity_matrix, self.eval_aff_idx)
+        self.log(f'{stage}_metric/retrieval/ndcg_max', ndcg_max)
+        self.log(f'{stage}_metric/retrieval/ndcg_sum', ndcg_sum)
+        mnr = self._compute_mnr(similarity_matrix, self.eval_per_level_labels)
+        self.log(f'{stage}_metric/retrieval/mnr', mnr)
         # classification
         if self.loss_activations['leaf']:
-            self.log('valid_metric/leaf_head/accuracy', self.leaf_head_accuracy.compute())
-            self.log('valid_metric/leaf_head/f1', self.leaf_head_f1.compute())
+            self.log(f'{stage}_metric/leaf/accuracy', self.leaf_accuracy.compute())
+            self.log(f'{stage}_metric/leaf/f1', self.leaf_f1.compute())
         if self.loss_activations['binary']:
-            self.log('valid_metric/all_nodes_except_root_binary_head/accuracy', 
-                self.ANER_head_accuracy.compute())
-            self.log('valid_metric/all_nodes_except_root_binary_head/f1', 
-                self.ANER_head_f1.compute())
-        self.leaf_head_accuracy.reset()
-        self.leaf_head_f1.reset()
-        self.ANER_head_accuracy.reset()
-        self.ANER_head_f1.reset()
+            self.log(f'{stage}_metric/binary/accuracy', self.binary_accuracy.compute())
+            self.log(f'{stage}_metric/binary/f1', self.binary_f1.compute())
+        if self.loss_activations['per_level']:
+            self.log(f'{stage}_metric/bottom_level/accuracy', self.bottom_level_accuracy.compute())
+            self.log(f'{stage}_metric/bottom_level/f1', self.bottom_level_f1.compute())
+        self.leaf_accuracy.reset()
+        self.leaf_f1.reset()
+        self.binary_accuracy.reset()
+        self.binary_f1.reset()
+        self.bottom_level_accuracy.reset()
+        self.bottom_level_f1.reset()
         self.retrieval_precision.reset()
         torch.cuda.empty_cache()
         self.log('memory/allocated', torch.cuda.memory_allocated() / 1024 ** 2)
         self.log('memory/reserved', torch.cuda.memory_reserved() / 1024 ** 2)
 
-    def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
-        return optimizer
+    def on_validation_epoch_end(self):
+        self.on_eval_epoch_end('valid')
 
-    def _compute_rp(
-        self, 
-        embs: torch.Tensor, 
-        labels: torch.Tensor
-    ) -> torch.Tensor:
-        embs = torch.cat(embs)
-        labels = torch.cat(labels)
-        sim_mtx = self.triplet_loss.distance.compute_mat(embs, embs) * \
-            torch.tensor(1. if self.triplet_loss.distance.is_inverted else -1.)
+    def on_test_epoch_end(self):
+        self.on_eval_epoch_end('test')
+
+    def on_predict_epoch_start(self):
+        self.predict_counter = {
+            'leaf': torch.tensor(0., device=self.device),
+            'per_level_leaf_trace_back': torch.tensor(0., device=self.device),
+            'per_level_direct': torch.tensor(0., device=self.device),
+            'total': torch.tensor(0., device=self.device)
+        }
+
+    def predict_step(self, batch, batch_idx):
+        
+        x, y = batch
+        z = self(x)
+
+        self.predict_counter['total'] += x.shape[0]
+
+        level_order_visible_nodes = self.trainer.datamodule.predict_set.level_order_visible_nodes
+        level_order_visible_nodes = [nodes for nodes in level_order_visible_nodes if len(nodes) > 1]
+
+        for i in range(x.shape[0]):
+            # count number of unseen nodes
+            per_level_label = y['per_level'][i]
+            # print(per_level_label)
+            mask_index = (per_level_label == self.mask_value).nonzero(as_tuple=True)[0][0]
+            # print(mask_index)
+            level = mask_index - 1
+            true_label = per_level_label[level]
+            # print(true_label)
+            
+            if self.loss_activations['per_level']:
+                logits = self.prediction_heads['per_level'][level](z[i])
+                pred = torch.argmax(logits)
+                if pred == true_label:
+                    self.predict_counter['per_level_direct'] += 1
+                logits = self.prediction_heads['per_level'][-1](z[i])
+                pred_leaf_idx = torch.argmax(logits)
+                node = self.trainer.datamodule.predict_set.visible_leaves[pred_leaf_idx]
+                find_parent_times = len(per_level_label) - mask_index
+                for _ in range(find_parent_times):
+                    node = node.parent
+                pred = level_order_visible_nodes[level].index(node)
+                if pred == true_label:
+                    self.predict_counter['per_level_leaf_trace_back'] += 1
+
+            if self.loss_activations['leaf']:
+                logits = self.prediction_heads['leaf'](z[i])
+                pred_leaf_idx = torch.argmax(logits)
+                node = self.trainer.datamodule.predict_set.visible_leaves[pred_leaf_idx]
+                find_parent_times = len(per_level_label) - mask_index
+                for _ in range(find_parent_times):
+                    node = node.parent
+                pred = level_order_visible_nodes[level].index(node)
+                if pred == true_label:
+                    self.predict_counter['leaf'] += 1
+
+    def on_predict_epoch_end(self):
+        if self.loss_activations['leaf']:
+            accu = self.predict_counter['leaf'] / self.predict_counter['total']
+            self.my_logger.info(f'Accuracy of predicting LVP: {accu}')
+        if self.loss_activations['per_level']:
+            accu_direct = self.predict_counter['per_level_direct'] / self.predict_counter['total']
+            accu_trace_back = self.predict_counter['per_level_leaf_trace_back'] / self.predict_counter['total']
+            self.my_logger.info(f'Accuracy of predicting LVP: '
+                                f'{accu_direct} (LVP level prediction head), '
+                                f'{accu_trace_back} (leaf node prediction head)')
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=self.lr_scheduler_patience, 
+                                                         factor=self.lr_reduce_factor)
+        return {
+            'optimizer': optimizer,
+            'lr_scheduler': {
+                'scheduler': scheduler,
+                'monitor': 'valid_loss/total',
+            }
+        }
+
+    def _compute_mnr(self, sim_mtx: torch.Tensor, per_level_labels: torch.Tensor) -> torch.Tensor:
+        num_samples, num_levels = per_level_labels.shape
+        per_query_mnr = []
+        for i in range(num_samples):
+            sim_scores = sim_mtx[i]
+            sim_scores = torch.cat([sim_scores[:i], sim_scores[i+1:]])
+            _, ranked_indices = torch.sort(sim_scores, descending=True)
+            per_level_mnr = []
+            for j in range(num_levels):
+                labels = torch.cat([per_level_labels[:i, j], per_level_labels[i+1:, j]])
+                query_label = per_level_labels[i, j]
+                same_label_indices = (labels == query_label).nonzero(as_tuple=True)[0]
+                same_label_ranks = (ranked_indices.unsqueeze(1) == same_label_indices).nonzero(as_tuple=True)[0]
+                per_level_mnr.append(torch.mean(same_label_ranks / num_samples - 1))
+            # nanmean for queries that do not have correct answers (a leaf only has one sample)
+            per_query_mnr.append(torch.nanmean(torch.tensor(per_level_mnr)))
+        return torch.mean(torch.tensor(per_query_mnr))
+
+    def _compute_rp(self, sim_mtx: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         preds = torch.cat(
             [torch.cat((row[:i],row[i+1:])) for i, row in enumerate(sim_mtx)]
         )
@@ -250,19 +392,11 @@ class LabelMetricModule(L.LightningModule):
         target = torch.cat(
             [torch.cat((row[:i],row[i+1:])) for i, row in enumerate(label_mtx)]
         )
-        N = embs.shape[0]
+        N = len(sim_mtx)
         indexes = torch.arange(N * (N - 1)) // (N - 1)
         return self.retrieval_precision(preds, target, indexes)
 
-    def _compute_adaptive_rp(
-        self, 
-        embs: torch.Tensor, 
-        labels: torch.Tensor
-    ) -> torch.Tensor:
-        embs = torch.cat(embs)
-        labels = torch.cat(labels)
-        sim_mtx = self.triplet_loss.distance.compute_mat(embs, embs) * \
-            torch.tensor(1. if self.triplet_loss.distance.is_inverted else -1.)
+    def _compute_adaptive_rp(self, sim_mtx: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         label_mtx = labels[:, None] == labels[None, :]
         r_p = []
         for i in range(len(sim_mtx)):
@@ -274,172 +408,17 @@ class LabelMetricModule(L.LightningModule):
                 r_p.append(retrieval_precision(preds, target, top_k=top_k))
         return torch.stack(r_p).mean()
 
-    def _compute_ndcg(
-            self, 
-            embs: torch.Tensor, 
-            labels: torch.Tensor
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
-        embs = torch.cat(embs)
-        labels = torch.cat(labels)
-        # this is similarity matrix, but it can have negative values
-        sim_mtx = self.triplet_loss.distance.compute_mat(embs, embs) * \
-            torch.tensor(1. if self.triplet_loss.distance.is_inverted else -1.)
+    def _compute_ndcg(self, sim_mtx: torch.Tensor, aff_idx: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         N = len(sim_mtx)
         mask = ~torch.eye(N, dtype=torch.bool, device=self.device)
         sim_mtx = sim_mtx[mask].reshape(N, N-1)
-        true_rel_sum = self.node_aff_sum[labels][:,labels]
-        true_rel_max = self.node_aff_max[labels][:,labels]
+        true_rel_sum = self.node_aff_sum[aff_idx][:,aff_idx]
+        true_rel_max = self.node_aff_max[aff_idx][:,aff_idx]
         true_rel_sum = true_rel_sum[mask].reshape(N, N-1)
         true_rel_max = true_rel_max[mask].reshape(N, N-1)
+        # retrieval_normalized_dcg does not support deterministic=True
+        torch.use_deterministic_algorithms(False)
         ndcg_max = retrieval_normalized_dcg(sim_mtx, true_rel_max)
         ndcg_sum = retrieval_normalized_dcg(sim_mtx, true_rel_sum)
+        torch.use_deterministic_algorithms(True)
         return ndcg_max, ndcg_sum
-
-
-if __name__ == '__main__':
-
-    # example code
-
-    import lightning as L
-    L.seed_everything(2024)
-    from label_metric.utils.log_utils import setup_logger
-    logger = logging.getLogger(__name__)
-    setup_logger(logger)
-
-    weight_manager = WeightManager(logger, active = True)
-
-    from label_metric.data_modules import OrchideaSOLDataModule
-
-    dm = OrchideaSOLDataModule(
-        dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
-        min_num_per_leaf = 10,
-        duration = 1.0,
-        train_ratio = 0.8,
-        valid_ratio = 0.1,
-        logger = logger,
-        dataset_sr = 44100,
-        dataset_channel_num = 1,
-        more_level = 1,
-        weight_manager = weight_manager,
-        batch_size = 32, 
-        num_workers = 11
-    )
-
-    dm.setup('fit')
-
-    # normalisatiion - todo: try this at the end
-    #
-    # from label_metric.datasets import BasicOrchideaSOL
-    # collect_stat_train_set = BasicOrchideaSOL(
-    #     dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
-    #     split = 'train',
-    #     min_num_per_leaf = 10,
-    #     duration = 1.0,
-    #     train_ratio = 0.8,
-    #     valid_ratio = 0.1,
-    #     logger = logger
-    # )
-    # from torch.utils.data import DataLoader
-    # collect_stat_train_loader = DataLoader(
-    #     collect_stat_train_set,
-    #     batch_size = 64,
-    #     num_workers = 11,
-    #     shuffle = False,
-    #     drop_last = False
-    # )
-    # from label_metric.models import Audio2LogMelSpec
-    # melspec = Audio2LogMelSpec(
-    #     sr = 44100,
-    #     n_fft = 2048,
-    #     hop_length = 512
-    # )
-    # train_spec_max_val = float('-inf')
-    # train_spec_min_val = float('inf')
-    # for x, y1, y2 in collect_stat_train_loader:
-    #     x = melspec(x)
-    #     batch_max = x.max().item()
-    #     batch_min = x.min().item()
-    #     if batch_max > train_spec_max_val:
-    #         train_spec_max_val = batch_max
-    #     if batch_min < train_spec_min_val:
-    #         train_spec_min_val = batch_min
-
-    from label_metric.models import ConvModel, PredictionHead
-
-    backbone_model = ConvModel(
-        duration = 1.0,
-        conv_out_channels = 128,
-        embedding_size = 256,
-        train_spec_max_val = None,
-        train_spec_min_val = None,
-        sr = 44100,
-        n_fft = 2048,
-        hop_length = 512
-    )
-
-    prediction_heads = nn.ModuleDict({
-        'leaf': PredictionHead(
-            embedding_size = 256,
-            num_classes = dm.train_set.get_leaf_num()
-        ),
-        'binary': PredictionHead(
-            embedding_size = 256,
-            num_classes = dm.train_set.get_node_num() - 1
-        ),
-        'per_level': nn.ModuleList([
-            PredictionHead(embedding_size=256, num_classes=size) \
-            for size in dm.train_set.get_level_sizes()
-        ])
-    })
-
-    from pytorch_metric_learning.distances import CosineSimilarity
-
-    triplet_loss = TripletLoss(margin=0.3, distance=CosineSimilarity())
-
-    lm = LabelMetricModule(
-        backbone_model = backbone_model,
-        prediction_heads = prediction_heads,
-        triplet_loss = triplet_loss,
-        use_triplet = True,
-        use_leaf = True,
-        use_binary = True,
-        use_per_level = False,
-        my_logger = logger,
-        weight_manager = weight_manager,
-        learning_rate = 0.001,
-        retrieval_precision_top_k = 5
-    )
-
-    from lightning.pytorch.loggers import TensorBoardLogger
-    logger = TensorBoardLogger(
-        save_dir = 'lightning_logs', 
-        name = 'exp4', 
-        version = 'Leaf + Binary + Triplet(m=0.3)'
-    )
-
-    # from lightning.pytorch.profilers import PyTorchProfiler
-    # profiler = PyTorchProfiler(
-    #     on_trace_ready = torch.profiler.tensorboard_trace_handler('lightning_logs/profile0')
-    # )
-
-    trainer = L.Trainer(
-        max_epochs = 3000, 
-        gradient_clip_val = 1.,
-        enable_progress_bar = False,
-        logger = logger,
-        check_val_every_n_epoch = 5
-    )
-    trainer.fit(model = lm, datamodule = dm)
-
-    # dm.setup('fit')
-    # train_loader = dm.train_dataloader()
-    # valid_loader = dm.val_dataloader()
-
-    # lm.on_train_epoch_start()
-    # for i, batch in enumerate(train_loader):
-    #     lm.training_step(batch, batch_idx=i)
-
-    # lm.on_validation_epoch_start()
-    # for i, batch in enumerate(valid_loader):
-    #     lm.validation_step(batch, batch_idx=i)
-    # lm.on_validation_epoch_end()
