@@ -292,10 +292,12 @@ class LabelMetricModule(L.LightningModule):
     def on_predict_epoch_start(self):
         self.predict_counter = {
             'leaf': torch.tensor(0., device=self.device),
-            'per_level_leaf_trace_back': torch.tensor(0., device=self.device),
-            'per_level_direct': torch.tensor(0., device=self.device),
+            'per_level_leaf_head': torch.tensor(0., device=self.device),
+            'per_level_lvp_head': torch.tensor(0., device=self.device),
             'total': torch.tensor(0., device=self.device)
         }
+        self.predict_embeddings = []
+        self.predict_aff_idx = []
 
     def predict_step(self, batch, batch_idx):
         
@@ -308,20 +310,16 @@ class LabelMetricModule(L.LightningModule):
         level_order_visible_nodes = [nodes for nodes in level_order_visible_nodes if len(nodes) > 1]
 
         for i in range(x.shape[0]):
-            # count number of unseen nodes
             per_level_label = y['per_level'][i]
-            # print(per_level_label)
             mask_index = (per_level_label == self.mask_value).nonzero(as_tuple=True)[0][0]
-            # print(mask_index)
             level = mask_index - 1
             true_label = per_level_label[level]
-            # print(true_label)
             
             if self.loss_activations['per_level']:
                 logits = self.prediction_heads['per_level'][level](z[i])
                 pred = torch.argmax(logits)
                 if pred == true_label:
-                    self.predict_counter['per_level_direct'] += 1
+                    self.predict_counter['per_level_lvp_head'] += 1
                 logits = self.prediction_heads['per_level'][-1](z[i])
                 pred_leaf_idx = torch.argmax(logits)
                 node = self.trainer.datamodule.predict_set.visible_leaves[pred_leaf_idx]
@@ -330,7 +328,7 @@ class LabelMetricModule(L.LightningModule):
                     node = node.parent
                 pred = level_order_visible_nodes[level].index(node)
                 if pred == true_label:
-                    self.predict_counter['per_level_leaf_trace_back'] += 1
+                    self.predict_counter['per_level_leaf_head'] += 1
 
             if self.loss_activations['leaf']:
                 logits = self.prediction_heads['leaf'](z[i])
@@ -343,16 +341,25 @@ class LabelMetricModule(L.LightningModule):
                 if pred == true_label:
                     self.predict_counter['leaf'] += 1
 
+        self.predict_embeddings.append(z)
+        self.predict_aff_idx.append(y['aff_idx'])
+
     def on_predict_epoch_end(self):
         if self.loss_activations['leaf']:
             accu = self.predict_counter['leaf'] / self.predict_counter['total']
             self.my_logger.info(f'Accuracy of predicting LVP: {accu}')
         if self.loss_activations['per_level']:
-            accu_direct = self.predict_counter['per_level_direct'] / self.predict_counter['total']
-            accu_trace_back = self.predict_counter['per_level_leaf_trace_back'] / self.predict_counter['total']
+            accu_lvp_head = self.predict_counter['per_level_lvp_head'] / self.predict_counter['total']
+            accu_leaf_head = self.predict_counter['per_level_leaf_head'] / self.predict_counter['total']
             self.my_logger.info(f'Accuracy of predicting LVP: '
-                                f'{accu_direct} (LVP level prediction head), '
-                                f'{accu_trace_back} (leaf node prediction head)')
+                                f'{accu_lvp_head} (LVP head), '
+                                f'{accu_leaf_head} (leaf head)')
+        self.predict_embeddings = torch.cat(self.predict_embeddings)
+        self.predict_aff_idx = torch.cat(self.predict_aff_idx)
+        similarity_matrix = self.triplet_loss.distance.compute_mat(self.predict_embeddings, self.predict_embeddings) * \
+            torch.tensor(1. if self.triplet_loss.distance.is_inverted else -1.)
+        ndcg_max, ndcg_sum = self._compute_ndcg(similarity_matrix, self.predict_aff_idx)
+        self.my_logger.info(f'Predict set ndcg_max {ndcg_max}, ndcg_sum {ndcg_sum}')
 
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
@@ -379,7 +386,7 @@ class LabelMetricModule(L.LightningModule):
                 query_label = per_level_labels[i, j]
                 same_label_indices = (labels == query_label).nonzero(as_tuple=True)[0]
                 same_label_ranks = (ranked_indices.unsqueeze(1) == same_label_indices).nonzero(as_tuple=True)[0]
-                per_level_mnr.append(torch.mean(same_label_ranks / num_samples - 1))
+                per_level_mnr.append(torch.mean(same_label_ranks / (num_samples - 1)))
             # nanmean for queries that do not have correct answers (a leaf only has one sample)
             per_query_mnr.append(torch.nanmean(torch.tensor(per_level_mnr)))
         return torch.mean(torch.tensor(per_query_mnr))

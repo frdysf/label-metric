@@ -10,7 +10,7 @@ data:
   dataset_sr: 44100
   dataset_channel_num: 1
   fold_num: 5
-  fold_id: 0
+  fold_id: 1
   mask_value: -1
   random_seed: 2024
   more_level: 1
@@ -26,22 +26,22 @@ model:
   n_fft: 2048
   hop_length: 512
   margin: 0.3
-  use_triplet: False
-  use_leaf: True
+  use_triplet: True
+  use_leaf: False
   use_binary: False
-  use_per_level: False
+  use_per_level: True
   learning_rate: 0.001
   weight_decay: 0.00001
   retrieval_precision_top_k: 5
-  lr_scheduler_patience: 50
+  lr_scheduler_patience: 250
   lr_reduce_factor: 0.6
   mask_value: -1
 trainer:
   save_dir: 'lightning_logs'
-  name: 'fold0'
-  version: 'l'
+  name: 'fold1'
+  version: 'pl+t'
   max_epochs: 2500
   gradient_clip_val: 1.
   enable_progress_bar: False
   check_val_every_n_epoch: 1
-  early_stopping_patience: 100
+  early_stopping_patience: 500

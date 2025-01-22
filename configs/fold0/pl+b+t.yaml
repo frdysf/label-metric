@@ -39,8 +39,8 @@ model:
 trainer:
   save_dir: 'lightning_logs'
   name: 'fold0'
-  version: 'pl+b+t_v1'
-  max_epochs: 5000
+  version: 'pl+b+t'
+  max_epochs: 2500
   gradient_clip_val: 1.
   enable_progress_bar: False
   check_val_every_n_epoch: 1

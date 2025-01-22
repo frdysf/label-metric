@@ -33,3 +33,5 @@ if __name__ == "__main__":
     trainer.fit(model = model, datamodule = dm)
     trainer.test(model = model, datamodule = dm)
     trainer.predict(model = model, datamodule = dm)
+
+    logger.info(f"exp info: {config['trainer']['name']} {config['trainer']['version']}")
