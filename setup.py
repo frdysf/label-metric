@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name="label-metric",
@@ -7,7 +7,7 @@ setup(
     author="Haokun Tian",
     author_email="haokun.tian@qmul.ac.uk",
     include_package_data=True,
-    packages=['label_metric'],
+    packages=find_packages(),  # utils subpkg
     url="https://github.com/tiianhk/label-metric",
     install_requires=[
         "torch",
