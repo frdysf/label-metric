@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Tuple, Any, Iterable
+from typing import Dict, List, Tuple, Any, Iterable, Optional
 import logging
 import random
 from itertools import accumulate
@@ -29,7 +29,7 @@ class OrchideaSOL(Dataset):
         mask_value: int,
         dataset_sr: int,
         dataset_channel_num: int,
-        random_seed: int
+        random_seed: Optional[int]
     ) -> None:
         self.dataset_dir = os.path.join(dataset_dir, 'OrchideaSOL2020')
         assert split in ['train', 'valid', 'test', 'predict']
@@ -51,7 +51,8 @@ class OrchideaSOL(Dataset):
         self.dataset_sr = dataset_sr
         self.dataset_channel_num = dataset_channel_num
         # set seed here for consistent split
-        L.seed_everything(random_seed)
+        if random_seed is not None:
+            L.seed_everything(random_seed)
         # prepare data
         self.data, self.tree, self.visible_leaves, self.level_order_visible_nodes, \
             self.level_order_flat_visible_nodes = self.load_data()
@@ -262,7 +263,7 @@ class BasicOrchideaSOL(OrchideaSOL):
         mask_value: int,
         dataset_sr: int,
         dataset_channel_num: int,
-        random_seed: int
+        random_seed: Optional[int]
     ) -> None:
         super().__init__(
             dataset_dir,
@@ -302,7 +303,7 @@ class TripletOrchideaSOL(OrchideaSOL):
         mask_value: int,
         dataset_sr: int,
         dataset_channel_num: int,
-        random_seed: int
+        random_seed: Optional[int]
     ) -> None:
         super().__init__(
             dataset_dir,
