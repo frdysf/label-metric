@@ -11,7 +11,7 @@ setup(
     url="https://github.com/tiianhk/label-metric",
     install_requires=[
         "torch",
-        "torchaudio",
+        "torchaudio<=2.8",
         "torchmetrics",
         "pytorch-lightning",
         "pytorch-metric-learning",
