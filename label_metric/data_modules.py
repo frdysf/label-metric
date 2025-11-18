@@ -24,7 +24,8 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         more_level: int,
         weight_manager: WeightManager,
         batch_size: int, 
-        num_workers: int
+        num_workers: int,
+        pin_memory: bool = False,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
@@ -43,6 +44,7 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         self.weight_manager = weight_manager
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.pin_memory = pin_memory
 
     def setup(self, stage: str) -> None:
         if stage == 'fit':
@@ -121,7 +123,8 @@ class OrchideaSOLDataModule(L.LightningDataModule):
             sampler = self.triplet_sampler,
             batch_size = self.batch_size,
             num_workers = self.num_workers,
-            drop_last = True
+            pin_memory = self.pin_memory,
+            drop_last = True,
         )
 
     def val_dataloader(self):
@@ -129,6 +132,7 @@ class OrchideaSOLDataModule(L.LightningDataModule):
             self.valid_set,
             batch_size = self.batch_size,
             num_workers = self.num_workers,
+            pin_memory = self.pin_memory,
             shuffle = False,
             drop_last = False
         )
@@ -138,6 +142,7 @@ class OrchideaSOLDataModule(L.LightningDataModule):
             self.test_set,
             batch_size = self.batch_size,
             num_workers = self.num_workers,
+            pin_memory = self.pin_memory,
             shuffle = False,
             drop_last = False
         )
@@ -147,6 +152,7 @@ class OrchideaSOLDataModule(L.LightningDataModule):
             self.predict_set,
             batch_size = self.batch_size,
             num_workers = self.num_workers,
+            pin_memory = self.pin_memory,
             shuffle = False,
             drop_last = False
         )
