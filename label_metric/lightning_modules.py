@@ -30,7 +30,8 @@ class LabelMetricModule(L.LightningModule):
         lr_reduce_factor: float,
         retrieval_precision_top_k: int,
         lr_scheduler_patience: int,
-        mask_value: int
+        mask_value: int,
+        compile: bool = False,
     ):
         super().__init__()
         
@@ -360,6 +361,10 @@ class LabelMetricModule(L.LightningModule):
             torch.tensor(1. if self.triplet_loss.distance.is_inverted else -1.)
         ndcg_max, ndcg_sum = self._compute_ndcg(similarity_matrix, self.predict_aff_idx)
         self.my_logger.info(f'Predict set ndcg_max {ndcg_max}, ndcg_sum {ndcg_sum}')
+
+    def setup(self, stage: str):
+        if self.hparams.compile and stage == "fit":
+            self.net = torch.compile(self.net)
 
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
