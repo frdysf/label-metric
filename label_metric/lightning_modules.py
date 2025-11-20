@@ -34,6 +34,8 @@ class LabelMetricModule(L.LightningModule):
         compile: bool = False,
     ):
         super().__init__()
+
+        self.save_hyperparameters(logger=False)
         
         # models
         self.backbone_model = backbone_model
