@@ -147,7 +147,11 @@ if __name__ == '__main__':
 
     from label_metric.datasets import TripletOrchideaSOL, BasicOrchideaSOL
     from label_metric.utils.log_utils import setup_logger
-    from label_metric.paths import DATA_DIR_EECS, DATA_DIR_APOCRITA
+
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+    DATA_DIR_APOCRITA = os.getenv('DATA_DIR_APOCRITA')
 
     logger = logging.getLogger(__name__)
     setup_logger(logger)

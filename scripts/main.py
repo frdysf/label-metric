@@ -4,9 +4,13 @@ import os
 
 from label_metric.utils.log_utils import setup_logger
 from label_metric.samplers import WeightManager
-from label_metric.paths import DATA_DIR_EECS, DATA_DIR_APOCRITA
 from label_metric.utils.config_utils import load_config, get_dm, \
     get_model, get_trainer
+
+import os
+from dotenv import load_dotenv
+load_dotenv()
+DATA_DIR_APOCRITA = os.getenv('DATA_DIR_APOCRITA')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -17,7 +21,8 @@ if __name__ == "__main__":
     config = load_config(args.config)
     
     if config['where'] == 'eecs':
-        dataset_dir = DATA_DIR_EECS
+        raise NotImplementedError("eecs setting is not implemented for config['where'].")
+        # dataset_dir = DATA_DIR_EECS
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     elif config['where'] == 'hpc':
         dataset_dir = DATA_DIR_APOCRITA

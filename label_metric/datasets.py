@@ -337,7 +337,11 @@ if __name__ == '__main__':
 
     # example code
 
-    from label_metric.paths import DATA_DIR_EECS, DATA_DIR_APOCRITA
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+    DATA_DIR_APOCRITA = os.getenv('DATA_DIR_APOCRITA')
+
     from label_metric.utils.log_utils import setup_logger
     logger = logging.getLogger(__name__)
     setup_logger(logger)

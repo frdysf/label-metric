@@ -35,7 +35,7 @@ if __name__ == '__main__':
     weight_manager = WeightManager(logger, active = True)
 
     data_module = OrchideaSOLDataModule(
-        dataset_dir = '/data/scratch/acw751/_OrchideaSOL2020_release',
+        dataset_dir = '/data/home/acw745/datasets/_OrchideaSOL2020_release',
         min_num_per_leaf = 10,
         duration = 1.0,
         train_ratio = 0.8,
