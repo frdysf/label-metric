@@ -349,7 +349,7 @@ if __name__ == '__main__':
         logger.info(f'datasets for cv fold {i}:')
 
         train_set = TripletOrchideaSOL(
-            dataset_dir = DATA_DIR_EECS,
+            dataset_dir = DATA_DIR_APOCRITA,
             split = 'train',
             min_num_per_leaf = 10,
             duration = 1.0,
@@ -365,7 +365,7 @@ if __name__ == '__main__':
         )
 
         valid_set = BasicOrchideaSOL(
-            dataset_dir = DATA_DIR_EECS,
+            dataset_dir = DATA_DIR_APOCRITA,
             split = 'valid',
             min_num_per_leaf = 10,
             duration = 1.0,
@@ -381,7 +381,7 @@ if __name__ == '__main__':
         )
 
         test_set = BasicOrchideaSOL(
-            dataset_dir = DATA_DIR_EECS,
+            dataset_dir = DATA_DIR_APOCRITA,
             split = 'test',
             min_num_per_leaf = 10,
             duration = 1.0,
@@ -397,7 +397,7 @@ if __name__ == '__main__':
         )
 
         predict_set = BasicOrchideaSOL(
-            dataset_dir = DATA_DIR_EECS,
+            dataset_dir = DATA_DIR_APOCRITA,
             split = 'predict',
             min_num_per_leaf = 10,
             duration = 1.0,
@@ -434,6 +434,30 @@ if __name__ == '__main__':
     )
 
     batch = next(iter(valid_loader))
-    print(f'audio shape: {batch[0].shape}\nlabel shape:')
+    print(f'\valid set\naudio shape: {batch[0].shape}\nlabel shape:')
+    for k,v in batch[1].items():
+        print(k, v.shape)
+
+    test_loader = DataLoader(
+        test_set,
+        batch_size = 32,
+        shuffle = True,
+        drop_last = False
+    )
+
+    batch = next(iter(test_loader))
+    print(f'\ntest set\naudio shape: {batch[0].shape}\nlabel shape:')
+    for k,v in batch[1].items():
+        print(k, v.shape)
+
+    predict_loader = DataLoader(
+        predict_set,
+        batch_size = 32,
+        shuffle = True,
+        drop_last = False
+    )
+
+    batch = next(iter(predict_loader))
+    print(f'\npredict set\naudio shape: {batch[0].shape}\nlabel shape:')
     for k,v in batch[1].items():
         print(k, v.shape)

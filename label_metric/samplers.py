@@ -153,7 +153,7 @@ if __name__ == '__main__':
     setup_logger(logger)
 
     train_set = TripletOrchideaSOL(
-        dataset_dir = DATA_DIR_EECS,
+        dataset_dir = DATA_DIR_APOCRITA,
         split = 'train',
         min_num_per_leaf = 10,
         duration = 1.0,
