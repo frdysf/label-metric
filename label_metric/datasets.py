@@ -438,7 +438,7 @@ if __name__ == '__main__':
     )
 
     batch = next(iter(valid_loader))
-    print(f'\valid set\naudio shape: {batch[0].shape}\nlabel shape:')
+    print(f'\nvalid set\naudio shape: {batch[0].shape}\nlabel shape:')
     for k,v in batch[1].items():
         print(k, v.shape)
 
