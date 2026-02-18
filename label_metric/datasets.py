@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Tuple, Any, Iterable, Optional
+from typing import Dict, List, Tuple, Any, Optional, Iterable, Callable
 import logging
 import random
 from itertools import accumulate
@@ -12,7 +12,6 @@ import lightning as L
 
 from label_metric.utils.tree_utils import tree_to_string, iter_parent_nodes, \
     NodeAffinity, prune_tree, repair_tree
-from label_metric.utils.audio_utils import standardize_duration
 
 class OrchideaSOL(Dataset):
     def __init__(
@@ -20,23 +19,22 @@ class OrchideaSOL(Dataset):
         dataset_dir: str,
         split: str,
         min_num_per_leaf: int,
-        duration: float,
         train_ratio: float,
         valid_ratio: float,
         logger: logging.Logger,
         fold_id: int,
         fold_num: int,
         mask_value: int,
-        dataset_sr: int,
         dataset_channel_num: int,
-        random_seed: Optional[int]
+        random_seed: Optional[int],
+        transform: Optional[List[Callable]] = None,
+        dataset_sr: int = 44100,
     ) -> None:
         self.dataset_dir = os.path.join(dataset_dir, 'OrchideaSOL2020')
         assert split in ['train', 'valid', 'test', 'predict']
         self.split = split
         # minimum n_samples required for a leaf to be visible
         self.min_num_per_leaf = min_num_per_leaf
-        self.duration = duration
         assert train_ratio + valid_ratio <= 1
         self.train_ratio = train_ratio
         self.valid_ratio = valid_ratio
@@ -53,6 +51,7 @@ class OrchideaSOL(Dataset):
         # set seed here for consistent split
         if random_seed is not None:
             L.seed_everything(random_seed)
+        self.transform = transform
         # prepare data
         self.data, self.tree, self.visible_leaves, self.level_order_visible_nodes, \
             self.level_order_flat_visible_nodes = self.load_data()
@@ -74,9 +73,14 @@ class OrchideaSOL(Dataset):
     def prepare_item(self, idx: int) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         audio_path = self.data[idx]['path']
         audio, sr = torchaudio.load(audio_path)
+
+        assert sr == self.dataset_sr  # original sr, can resample in transform
         assert audio.shape[0] == self.dataset_channel_num
-        assert sr == self.dataset_sr
-        audio = standardize_duration(audio, sr=sr, dur=self.duration)
+
+        if self.transform is not None:
+            for transform in self.transform:
+                audio = transform(audio)
+
         audio = audio.squeeze(0)
         label = self.data[idx]['label']
         return audio, label
@@ -254,31 +258,31 @@ class BasicOrchideaSOL(OrchideaSOL):
         dataset_dir: str,
         split: str,
         min_num_per_leaf: int,
-        duration: float,
         train_ratio: float,
         valid_ratio: float,
         logger: logging.Logger,
         fold_id: int,
         fold_num: int,
         mask_value: int,
-        dataset_sr: int,
         dataset_channel_num: int,
-        random_seed: Optional[int]
+        random_seed: Optional[int],
+        transform: Optional[List[Callable]],
+        dataset_sr: int,
     ) -> None:
         super().__init__(
             dataset_dir,
             split,
             min_num_per_leaf,
-            duration,
             train_ratio,
             valid_ratio,
             logger,
             fold_id,
             fold_num,
             mask_value,
-            dataset_sr,
             dataset_channel_num,
-            random_seed
+            random_seed,
+            transform,
+            dataset_sr
         )
     
     def __getitem__(
@@ -294,31 +298,31 @@ class TripletOrchideaSOL(OrchideaSOL):
         dataset_dir: str,
         split: str,
         min_num_per_leaf: int,
-        duration: float,
         train_ratio: float,
         valid_ratio: float,
         logger: logging.Logger,
         fold_id: int,
         fold_num: int,
         mask_value: int,
-        dataset_sr: int,
         dataset_channel_num: int,
-        random_seed: Optional[int]
+        random_seed: Optional[int],
+        transform: Optional[List[Callable]],
+        dataset_sr: int,
     ) -> None:
         super().__init__(
             dataset_dir,
             split,
             min_num_per_leaf,
-            duration,
             train_ratio,
             valid_ratio,
             logger,
             fold_id,
             fold_num,
             mask_value,
-            dataset_sr,
             dataset_channel_num,
-            random_seed
+            random_seed,
+            transform,
+            dataset_sr
         )
     
     def __getitem__(
@@ -342,6 +346,10 @@ if __name__ == '__main__':
     load_dotenv()
     DATA_DIR_APOCRITA = os.getenv('DATA_DIR_APOCRITA')
 
+    from label_metric.utils.audio_utils import standardize_duration
+    from functools import partial
+    transform = [partial(standardize_duration, sr=44100, dur=1.0)]
+
     from label_metric.utils.log_utils import setup_logger
     logger = logging.getLogger(__name__)
     setup_logger(logger)
@@ -356,64 +364,64 @@ if __name__ == '__main__':
             dataset_dir = DATA_DIR_APOCRITA,
             split = 'train',
             min_num_per_leaf = 10,
-            duration = 1.0,
             train_ratio = 0.8,
             valid_ratio = 0.1,
             logger = logger,
-            dataset_sr = 44100,
             dataset_channel_num = 1,
             fold_num = 5,
             fold_id = i,
             mask_value = -1,
-            random_seed = 2024
+            random_seed = 2024,
+            transform=transform,
+            dataset_sr = 44100,
         )
 
         valid_set = BasicOrchideaSOL(
             dataset_dir = DATA_DIR_APOCRITA,
             split = 'valid',
             min_num_per_leaf = 10,
-            duration = 1.0,
             train_ratio = 0.8,
             valid_ratio = 0.1,
             logger = logger,
-            dataset_sr = 44100,
             dataset_channel_num = 1,
             fold_num = 5,
             fold_id = i,
             mask_value = -1,
-            random_seed = 2024
+            random_seed = 2024,
+            transform=transform,
+            dataset_sr = 44100
         )
 
         test_set = BasicOrchideaSOL(
             dataset_dir = DATA_DIR_APOCRITA,
             split = 'test',
             min_num_per_leaf = 10,
-            duration = 1.0,
             train_ratio = 0.8,
             valid_ratio = 0.1,
             logger = logger,
-            dataset_sr = 44100,
             dataset_channel_num = 1,
             fold_num = 5,
             fold_id = i,
             mask_value = -1,
-            random_seed = 2024
+            random_seed = 2024,
+            transform=transform,
+            dataset_sr = 44100
         )
 
         predict_set = BasicOrchideaSOL(
             dataset_dir = DATA_DIR_APOCRITA,
             split = 'predict',
             min_num_per_leaf = 10,
-            duration = 1.0,
             train_ratio = 0.8,
             valid_ratio = 0.1,
             logger = logger,
-            dataset_sr = 44100,
             dataset_channel_num = 1,
             fold_num = 5,
             fold_id = i,
             mask_value = -1,
-            random_seed = 2024
+            random_seed = 2024,
+            transform=transform,
+            dataset_sr = 44100
         )
 
         train_paths.append(set([data['path'] for data in train_set.data]))

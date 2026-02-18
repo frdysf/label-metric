@@ -1,5 +1,7 @@
 import logging
 
+from typing import List, Callable, Optional
+
 from torch.utils.data import DataLoader
 import lightning as L
 
@@ -11,11 +13,9 @@ class OrchideaSOLDataModule(L.LightningDataModule):
     def __init__(self,
         dataset_dir: str,
         min_num_per_leaf: int,
-        duration: float,
         train_ratio: float,
         valid_ratio: float,
         logger: logging.Logger,
-        dataset_sr: int,
         dataset_channel_num: int,
         fold_num: int,
         fold_id: int,
@@ -26,15 +26,15 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         batch_size: int, 
         num_workers: int,
         pin_memory: bool = False,
+        transform: Optional[List[Callable]] = None,
+        dataset_sr: int = 44100,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
         self.min_num_per_leaf = min_num_per_leaf
-        self.duration = duration
         self.train_ratio = train_ratio
         self.valid_ratio = valid_ratio
         self.logger = logger
-        self.dataset_sr = dataset_sr
         self.dataset_channel_num = dataset_channel_num
         self.fold_num = fold_num
         self.fold_id = fold_id
@@ -45,6 +45,8 @@ class OrchideaSOLDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.transform = transform
+        self.dataset_sr = dataset_sr
 
     def setup(self, stage: str) -> None:
         if stage == 'fit':
@@ -52,16 +54,16 @@ class OrchideaSOLDataModule(L.LightningDataModule):
                 dataset_dir = self.dataset_dir,
                 split = 'train',
                 min_num_per_leaf = self.min_num_per_leaf,
-                duration = self.duration,
                 train_ratio = self.train_ratio,
                 valid_ratio = self.valid_ratio,
                 logger = self.logger,
-                dataset_sr = self.dataset_sr,
                 dataset_channel_num = self.dataset_channel_num,
                 fold_num = self.fold_num,
                 fold_id = self.fold_id,
                 mask_value = self.mask_value,
-                random_seed = self.random_seed
+                random_seed = self.random_seed,
+                transform=self.transform,
+                dataset_sr = self.dataset_sr
             )
             self.triplet_sampler = SampleTripletsFromTree(
                 dataset = self.train_set, 
@@ -73,48 +75,48 @@ class OrchideaSOLDataModule(L.LightningDataModule):
                 dataset_dir = self.dataset_dir,
                 split = 'valid',
                 min_num_per_leaf = self.min_num_per_leaf,
-                duration = self.duration,
                 train_ratio = self.train_ratio,
                 valid_ratio = self.valid_ratio,
                 logger = self.logger,
-                dataset_sr = self.dataset_sr,
                 dataset_channel_num = self.dataset_channel_num,
                 fold_num = self.fold_num,
                 fold_id = self.fold_id,
                 mask_value = self.mask_value,
-                random_seed = self.random_seed
+                random_seed = self.random_seed,
+                transform=self.transform,
+                dataset_sr = self.dataset_sr
             )
         if stage == 'test':
             self.test_set = BasicOrchideaSOL(
                 dataset_dir = self.dataset_dir,
                 split = 'test',
                 min_num_per_leaf = self.min_num_per_leaf,
-                duration = self.duration,
                 train_ratio = self.train_ratio,
                 valid_ratio = self.valid_ratio,
                 logger = self.logger,
-                dataset_sr = self.dataset_sr,
                 dataset_channel_num = self.dataset_channel_num,
                 fold_num = self.fold_num,
                 fold_id = self.fold_id,
                 mask_value = self.mask_value,
-                random_seed = self.random_seed
+                random_seed = self.random_seed,
+                transform=self.transform,
+                dataset_sr = self.dataset_sr
             )
         if stage == 'predict':
             self.predict_set = BasicOrchideaSOL(
                 dataset_dir = self.dataset_dir,
                 split = 'predict',
                 min_num_per_leaf = self.min_num_per_leaf,
-                duration = self.duration,
                 train_ratio = self.train_ratio,
                 valid_ratio = self.valid_ratio,
                 logger = self.logger,
-                dataset_sr = self.dataset_sr,
                 dataset_channel_num = self.dataset_channel_num,
                 fold_num = self.fold_num,
                 fold_id = self.fold_id,
                 mask_value = self.mask_value,
-                random_seed = self.random_seed
+                random_seed = self.random_seed,
+                transform=self.transform,
+                dataset_sr = self.dataset_sr
             )
 
     def train_dataloader(self):
@@ -167,6 +169,10 @@ if __name__ == '__main__':
     load_dotenv()
     DATA_DIR_APOCRITA = os.getenv('DATA_DIR_APOCRITA')
 
+    from label_metric.utils.audio_utils import standardize_duration
+    from functools import partial
+    transform = [partial(standardize_duration, sr=44100, dur=1.0)]
+
     from label_metric.utils.log_utils import setup_logger
     logger = logging.getLogger(__name__)
     setup_logger(logger)
@@ -176,11 +182,9 @@ if __name__ == '__main__':
     dm = OrchideaSOLDataModule(
         dataset_dir = DATA_DIR_APOCRITA,
         min_num_per_leaf = 10,
-        duration = 1.0,
         train_ratio = 0.8,
         valid_ratio = 0.1,
         logger = logger,
-        dataset_sr = 44100,
         dataset_channel_num = 1,
         fold_num = 5,
         fold_id = 0,
@@ -189,7 +193,9 @@ if __name__ == '__main__':
         more_level = 1,
         weight_manager = weight_manager,
         batch_size = 32,
-        num_workers = 2
+        num_workers = 2,
+        transform=transform,
+        dataset_sr = 44100
     )
 
     dm.setup('fit')
