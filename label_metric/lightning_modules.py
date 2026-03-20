@@ -35,7 +35,7 @@ class LabelMetricModule(L.LightningModule):
     ):
         super().__init__()
 
-        self.save_hyperparameters(logger=False, ignore=['backbone_model'])
+        self.save_hyperparameters(ignore=['backbone_model'])
         
         # models
         self.backbone_model = backbone_model
@@ -165,7 +165,7 @@ class LabelMetricModule(L.LightningModule):
 
         # add
         loss = triplet_loss + softmax_on_leaf + binary_loss + softmax_per_level
-        
+
         # log
         if self.loss_activations['triplet']:
             self.log('train_loss/triplet', triplet_loss)
@@ -188,6 +188,7 @@ class LabelMetricModule(L.LightningModule):
         self.eval_labels = []
         self.eval_aff_idx = []
         self.eval_per_level_labels = []
+        self.viz_labels = []
 
     def on_validation_epoch_start(self):
         self.on_eval_epoch_start()
@@ -233,6 +234,16 @@ class LabelMetricModule(L.LightningModule):
         self.eval_labels.append(y['leaf'])
         self.eval_aff_idx.append(y['aff_idx'])
         self.eval_per_level_labels.append(y['per_level'])
+
+        # used in external callback to visualize latents; aggregated on epoch end
+        named_labels = {'inst_fam': y['per_level'][:,0],
+                        'inst': y['per_level'][:,1],
+                        'mute': y['per_level'][:,2],
+                        'p_tech': y['per_level'][:,3]
+                        }
+        named_labels.update({l: y[l] for l in 
+                             ('midi_pitch', 'pitch_class', 'dynamics')})
+        self.viz_labels.append(named_labels)
         
         # update classification metrics
         self.leaf_accuracy.update(logits, y['leaf'])
@@ -285,6 +296,20 @@ class LabelMetricModule(L.LightningModule):
         torch.cuda.empty_cache()
         self.log('memory/allocated', torch.cuda.memory_allocated() / 1024 ** 2)
         self.log('memory/reserved', torch.cuda.memory_reserved() / 1024 ** 2)
+        # to visualize latents (external callback)
+        aggregated_labels = {}  # gather labels from across batches
+        for d in self.viz_labels:
+            for key, arr in d.items():
+                if key not in aggregated_labels:
+                    aggregated_labels[key] = []
+                aggregated_labels[key].append(arr)
+
+        self.stacked_labels = {key: torch.hstack(arr).detach()
+                    for key, arr in aggregated_labels.items()}
+
+        # TODO: is this necessary?
+        # self.stacked_embeddings = torch.vstack(self.eval_embeddings).detach()
+        self.stacked_embeddings = self.eval_embeddings
 
     def on_validation_epoch_end(self):
         self.on_eval_epoch_end('valid')

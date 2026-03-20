@@ -71,6 +71,7 @@ class OrchideaSOLDataModule(L.LightningDataModule):
                 logger = self.logger,
                 weight_manager = self.weight_manager
             )
+            
             self.valid_set = BasicOrchideaSOL(
                 dataset_dir = self.dataset_dir,
                 split = 'valid',

@@ -61,6 +61,40 @@ class OrchideaSOL(Dataset):
         # log info
         self.logger.info(f'{self.split} set data loaded\n{self.__str__()}')
 
+        # encode midi_pitch, pitch_class and dynamics and add to 'label' dict
+        self.data = self.encode_pitch_and_dynamics(self.data)
+
+    def encode_pitch_and_dynamics(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        import pandas as pd
+        from label_metric.utils.data_utils import str2midi
+        import re
+
+        df = pd.DataFrame(data)
+
+        # if pitch str is not "well-behaved" (e.g. 'C1_G1'), str2midi returns -1
+        df["midi_pitch"] = df["pitch"].apply(lambda p: str2midi(p) \
+                                        if p else None).astype("Int64")
+        df['pitch_class'] = df['pitch'].apply(lambda p: re.search(r'[A-Ga-g]#?', \
+                                                                    p).group(0))
+        df["label_pitch_class"] = \
+            df["pitch_class"].astype("category").cat.codes
+        df["label_dynamics"] = \
+            df["dynamics"].astype("category").cat.codes
+        
+        # find rows where midi_pitch is -1 and rewrite label_pitch_class to -1
+        invalid_midi_pitch_idx = df[df.loc[:, "midi_pitch"] == -1].index
+        df.loc[invalid_midi_pitch_idx, "label_pitch_class"] = -1
+
+        df.apply(lambda row: row["label"].update({
+            "midi_pitch": torch.tensor(row["midi_pitch"]),
+            "pitch_class": torch.tensor(row["label_pitch_class"]),
+            "dynamics": torch.tensor(row["label_dynamics"]),
+        }), axis=1)
+
+        df.drop(columns=["midi_pitch", "pitch_class", "label_pitch_class", "label_dynamics"], inplace=True)
+        data = df.to_dict(orient="records")
+        return data
+
     def __len__(self) -> int:
         return len(self.data)
     
