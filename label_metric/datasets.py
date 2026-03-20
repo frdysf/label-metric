@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Tuple, Any, Optional, Iterable, Callable
+from typing import Dict, List, Tuple, Any, Iterable, Optional, Callable
 import logging
 import random
 from itertools import accumulate
@@ -26,7 +26,7 @@ class OrchideaSOL(Dataset):
         fold_num: int,
         mask_value: int,
         dataset_channel_num: int,
-        random_seed: Optional[int],
+        random_seed: int,
         transform: Optional[List[Callable]] = None,
         dataset_sr: int = 44100,
     ) -> None:
@@ -49,8 +49,7 @@ class OrchideaSOL(Dataset):
         self.dataset_sr = dataset_sr
         self.dataset_channel_num = dataset_channel_num
         # set seed here for consistent split
-        if random_seed is not None:
-            L.seed_everything(random_seed)
+        L.seed_everything(random_seed)
         self.transform = transform
         # prepare data
         self.data, self.tree, self.visible_leaves, self.level_order_visible_nodes, \
@@ -299,7 +298,7 @@ class BasicOrchideaSOL(OrchideaSOL):
         fold_num: int,
         mask_value: int,
         dataset_channel_num: int,
-        random_seed: Optional[int],
+        random_seed: int,
         transform: Optional[List[Callable]],
         dataset_sr: int,
     ) -> None:
@@ -339,7 +338,7 @@ class TripletOrchideaSOL(OrchideaSOL):
         fold_num: int,
         mask_value: int,
         dataset_channel_num: int,
-        random_seed: Optional[int],
+        random_seed: int,
         transform: Optional[List[Callable]],
         dataset_sr: int,
     ) -> None:
